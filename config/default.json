@@ -1,0 +1,19 @@
+{
+  "models": {
+    "defaultJudgementModel": "GLM5.1",
+    "optionalJudgementModels": ["GPT-5.5"],
+    "notes": "主线、形态、关键点判断默认明确使用 GLM5.1；需要时可在本地配置中切换到 GPT-5.5。"
+  },
+  "scan": {
+    "market": "A-share",
+    "mode": "manual-after-close",
+    "maxNewPositionsPerWeek": 2,
+    "positionSizeRatio": 0.1
+  },
+  "portfolio": {
+    "path": "portfolio.json"
+  },
+  "push": {
+    "feishuEnabled": false
+  }
+}
