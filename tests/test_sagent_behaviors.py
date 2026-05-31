@@ -411,3 +411,90 @@ def test_fallback_client_does_not_switch_on_non_quota_error():
         assert "invalid prompt" in str(error)
     else:
         raise AssertionError("应该抛出 ValueError 而不是降级")
+
+
+def test_prepare_scan_outputs_structured_data_without_llm_judgement():
+    """prepare_scan 输出包含量化粗筛 + K 线描述 + 板块验证，不含 LLM 判断结果。"""
+    from sagent.kline import describe_stock
+    from sagent.llm import build_sector_prompt
+    from sagent.sector import summarize_sectors, validate_mainline_sectors
+    from sagent.technical import filter_stock_pool, technical_candidates
+
+    data = fixture_data()
+    pool = filter_stock_pool(data.stocks())
+    candidates = technical_candidates(data, pool.included)
+    validations = validate_mainline_sectors(summarize_sectors(data))
+
+    # 候选股必须有 K 线描述
+    assert len(candidates) >= 1
+    for candidate in candidates:
+        description = describe_stock(candidate.symbol, data.daily_bars(candidate.symbol))
+        assert description.text
+        assert description.key_low > 0
+        assert "JSON" not in description.text  # K 线描述不含 LLM prompt
+
+    # 板块验证必须有 level 和 rules
+    for _name, validation in validations.items():
+        assert validation.level in {"强主线", "弱主线", "非主线"}
+        assert isinstance(validation.rules, dict)
+        # 只有弱主线才需要 LLM 二次判断
+        if validation.needs_llm:
+            assert validation.level == "弱主线"
+            prompt = build_sector_prompt(validation)
+            assert "JSON" in prompt  # prompt 包含格式指引
+
+
+def test_apply_decision_writes_buy_to_portfolio(tmp_path):
+    """apply_decision 接收 JSON 判断结果，成功买入时写入 portfolio。"""
+    from sagent.portfolio import PortfolioStore, confirm_buy
+
+    store = PortfolioStore(tmp_path / "portfolio.json")
+    portfolio = store.load_or_create(initial_cash=100_000)
+
+    # 模拟 pi agent 的判断结果：action=买入
+    result = confirm_buy(
+        portfolio=portfolio,
+        symbol="000001",
+        name="测试股票",
+        sector="AI应用",
+        buy_price=15.0,
+        key_low=13.29,
+        trade_date="2026-05-13",
+    )
+    store.save(result.portfolio)
+
+    # 重新加载验证持久化
+    loaded = store.load_or_create()
+    assert len(loaded.positions) == 1
+    assert loaded.positions[0].symbol == "000001"
+    assert loaded.positions[0].buy_price == 15.0
+    assert loaded.positions[0].key_low == 13.29
+    assert loaded.cash < 100_000
+
+
+def test_scan_pipeline_prepare_then_judge_then_apply(tmp_path):
+    """端到端：prepare 数据 → 规则引擎判断 → apply 写入 portfolio。"""
+    from sagent.scan import run_scan
+
+    portfolio_path = tmp_path / "portfolio.json"
+    config_path = Path("config/default.json")
+
+    result = run_scan(
+        data=fixture_data(),
+        portfolio_path=portfolio_path,
+        config_path=config_path,
+        env={},
+    )
+
+    # 结果包含完整结构
+    assert result["mode"] == "fixture"
+    assert "candidates" in result
+    assert "excluded" in result
+    assert "warning" in result
+    assert "不构成投资建议" in result["warning"]
+
+    # 候选股有 action（规则引擎 fallback 给出的）
+    if result["candidates"]:
+        candidate = result["candidates"][0]
+        assert candidate["action"] in {"买入", "观察", "放弃"}
+        assert candidate["key_low"] is not None

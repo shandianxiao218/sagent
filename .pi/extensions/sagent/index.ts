@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import path from "node:path";
 
@@ -17,19 +17,15 @@ async function runPython(cwd: string, script: string, args: string[] = []) {
 			windowsHide: true,
 		},
 	);
-
-	return {
-		stdout: stdout.trim(),
-		stderr: stderr.trim(),
-	};
+	return { stdout: stdout.trim(), stderr: stderr.trim() };
 }
 
 async function runPythonSafe(cwd: string, script: string, args: string[] = []) {
 	try {
-		return { ok: true, ...(await runPython(cwd, script, args)) };
+		return { ok: true as const, ...(await runPython(cwd, script, args)) };
 	} catch (error) {
 		return {
-			ok: false,
+			ok: false as const,
 			stdout: JSON.stringify(
 				{
 					ok: false,
@@ -51,68 +47,37 @@ function parseJson(text: string) {
 	}
 }
 
-function buildScanNotification(scanStdout: string) {
-	const data = parseJson(scanStdout) as {
-		trade_date?: string;
-		mode?: string;
-		judgement_model?: string;
-		candidates?: Array<{
-			symbol?: string;
-			name?: string;
-			sector?: string;
-			reason?: string;
-			risk?: string;
-		}>;
-		warning?: string;
-	};
-
-	const lines = [
-		`交易日：${data.trade_date ?? "未知"}`,
-		`模式：${data.mode ?? "未知"}`,
-		`判断模型：${data.judgement_model ?? "GLM5.1"}`,
-		`候选数量：${data.candidates?.length ?? 0}`,
-	];
-
-	if (data.warning) lines.push(`提示：${data.warning}`);
-
-	for (const candidate of data.candidates ?? []) {
-		lines.push(
-			"",
-			`- ${candidate.symbol ?? "未知代码"} ${candidate.name ?? ""}`.trim(),
-			`  板块：${candidate.sector ?? "未知"}`,
-			`  理由：${candidate.reason ?? "未提供"}`,
-			`  风险：${candidate.risk ?? "未提供"}`,
-		);
-	}
-
-	return lines.join("\n");
-}
-
 export default function sagentExtension(pi: ExtensionAPI) {
 	pi.on("session_start", (_event, ctx) => {
 		ctx.ui.setStatus("sagent", "sagent 已加载");
 	});
 
+	// ── Tool: prepare_scan ──────────────────────────────────────
+	// Python 量化粗筛，输出结构化数据供 pi agent 判断
 	pi.registerTool({
-		name: "market_scan",
-		label: "Market Scan",
-		description: "执行 sagent A 股市场扫描。骨架阶段返回 mock 候选股。",
-		promptSnippet: "执行 A 股主线交易市场扫描，默认使用 GLM5.1 判断规则。",
+		name: "prepare_scan",
+		label: "Prepare Scan Data",
+		description:
+			"执行 sagent 量化粗筛：股票池过滤 → 技术候选 → K 线描述 → 板块验证 → 持仓监控。不做 LLM 判断，输出结构化 JSON 供你分析。",
+		promptSnippet: "准备 sagent 扫描数据，获取候选股和板块验证结果。",
 		promptGuidelines: [
-			"使用 market_scan 时，必须说明当前骨架阶段尚未接入真实 AKShare 数据。",
-			"使用 market_scan 的输出时，必须提醒用户不构成投资建议。",
+			"prepare_scan 输出的 candidates 包含 K 线描述和量化指标，你需要用 a-share-main-trend skill 对每个候选做判断。",
+			"sectors 中 needs_llm=true 的板块需要你做 LLM 判断（主线/弱主线/非主线）。",
+			"使用 prepare_scan 的输出时，必须提醒用户不构成投资建议。",
 		],
 		parameters: Type.Object({
-			mock: Type.Optional(
-				Type.Boolean({ description: "是否强制使用 mock 数据" }),
+			fixture: Type.Optional(
+				Type.String({
+					description: "本地 fixture 文件路径（默认使用 sample_market.json）",
+				}),
 			),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			const args =
-				params.mock === false
-					? ["--fixture", "fixtures/market/sample_market.json"]
-					: ["--mock"];
-			const result = await runPython(ctx.cwd, "market_scan.py", args);
+			const fixture = params.fixture ?? "fixtures/market/sample_market.json";
+			const result = await runPython(ctx.cwd, "prepare_scan.py", [
+				"--fixture",
+				fixture,
+			]);
 			return {
 				content: [{ type: "text", text: result.stdout }],
 				details: { stderr: result.stderr, data: parseJson(result.stdout) },
@@ -120,6 +85,67 @@ export default function sagentExtension(pi: ExtensionAPI) {
 		},
 	});
 
+	// ── Tool: apply_decision ────────────────────────────────────
+	// 接收 pi agent 的判断结果，写入 portfolio + 推送飞书
+	pi.registerTool({
+		name: "apply_decision",
+		label: "Apply Decision",
+		description:
+			"将你的板块和个股判断结果写入 portfolio.json，并可选推送飞书。输入 JSON 格式的判断结果。",
+		promptSnippet: "把判断结果写入 sagent portfolio。",
+		promptGuidelines: [
+			"apply_decision 不会自动交易，只更新本地 portfolio.json。",
+			"使用 apply_decision 时，必须提醒用户不构成投资建议。",
+		],
+		parameters: Type.Object({
+			decisions: Type.String({ description: "JSON 字符串：判断结果数组" }),
+			trade_date: Type.Optional(
+				Type.String({ description: "交易日期 YYYY-MM-DD" }),
+			),
+			initial_cash: Type.Optional(
+				Type.Number({
+					description: "初始资金（新建 portfolio 时）",
+					default: 100000,
+				}),
+			),
+		}),
+		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			const args = ["--initial-cash", String(params.initial_cash ?? 100000)];
+			if (params.trade_date) {
+				args.push("--trade-date", params.trade_date);
+			}
+			const scriptPath = path.join(ctx.cwd, "scripts", "apply_decision.py");
+			const result = await new Promise<{ stdout: string; stderr: string }>(
+				(resolve, reject) => {
+					const child = spawn("python", [scriptPath, ...args], {
+						cwd: ctx.cwd,
+						windowsHide: true,
+					});
+					let stdout = "";
+					let stderr = "";
+					child.stdout.on("data", (chunk: Buffer) => {
+						stdout += chunk.toString("utf8");
+					});
+					child.stderr.on("data", (chunk: Buffer) => {
+						stderr += chunk.toString("utf8");
+					});
+					child.on("close", (code) => {
+						if (code !== 0)
+							reject(new Error(`apply_decision exit ${code}: ${stderr}`));
+						else resolve({ stdout: stdout.trim(), stderr: stderr.trim() });
+					});
+					child.stdin.write(params.decisions);
+					child.stdin.end();
+				},
+			);
+			return {
+				content: [{ type: "text", text: result.stdout }],
+				details: { stderr: result.stderr, data: parseJson(result.stdout) },
+			};
+		},
+	});
+
+	// ── Tool: check_portfolio ───────────────────────────────────
 	pi.registerTool({
 		name: "check_portfolio",
 		label: "Check Portfolio",
@@ -127,9 +153,7 @@ export default function sagentExtension(pi: ExtensionAPI) {
 		promptSnippet: "检查本地 portfolio.json 持仓状态。",
 		parameters: Type.Object({
 			init: Type.Optional(
-				Type.Boolean({
-					description: "如果文件不存在，是否初始化 portfolio.json",
-				}),
+				Type.Boolean({ description: "如果文件不存在，是否初始化" }),
 			),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -142,15 +166,36 @@ export default function sagentExtension(pi: ExtensionAPI) {
 		},
 	});
 
+	// ── Tool: analyze_stock ─────────────────────────────────────
+	pi.registerTool({
+		name: "analyze_stock",
+		label: "Analyze Stock",
+		description: "生成单只股票的 K 线自然语言描述。",
+		promptSnippet: "把个股 K 线转成自然语言描述，供你判断形态。",
+		parameters: Type.Object({
+			symbol: Type.String({ description: "股票代码，例如 000001" }),
+			fixture: Type.Optional(Type.String({ description: "fixture 文件路径" })),
+		}),
+		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			const args = ["--symbol", params.symbol];
+			if (params.fixture) args.push("--fixture", params.fixture);
+			else args.push("--mock");
+			const result = await runPython(ctx.cwd, "analyze_stock.py", args);
+			return {
+				content: [{ type: "text", text: result.stdout }],
+				details: { stderr: result.stderr, data: parseJson(result.stdout) },
+			};
+		},
+	});
+
+	// ── Tool: send_feishu_notification ──────────────────────────
 	pi.registerTool({
 		name: "send_feishu_notification",
 		label: "Send Feishu Notification",
-		description:
-			"发送 sagent 飞书机器人通知。未配置 SAGENT_FEISHU_WEBHOOK 时安全跳过。",
-		promptSnippet: "把 sagent 扫描或持仓监控结果推送到飞书。",
+		description: "发送 sagent 飞书机器人通知。未配置 webhook 时安全跳过。",
+		promptSnippet: "把 sagent 结果推送到飞书。",
 		promptGuidelines: [
-			"使用 send_feishu_notification 时，必须提醒用户该通知仅作研究和辅助分析，不构成投资建议。",
-			"send_feishu_notification 不会展示或回传飞书 webhook 密钥。",
+			"使用 send_feishu_notification 时，必须提醒用户不构成投资建议。",
 		],
 		parameters: Type.Object({
 			title: Type.Optional(Type.String({ description: "通知标题" })),
@@ -167,7 +212,7 @@ export default function sagentExtension(pi: ExtensionAPI) {
 				params.text,
 			];
 			if (params.dryRun) args.push("--dry-run");
-			const result = await runPython(ctx.cwd, "notify_feishu.py", args);
+			const result = await runPythonSafe(ctx.cwd, "notify_feishu.py", args);
 			return {
 				content: [{ type: "text", text: result.stdout }],
 				details: { stderr: result.stderr, data: parseJson(result.stdout) },
@@ -175,58 +220,68 @@ export default function sagentExtension(pi: ExtensionAPI) {
 		},
 	});
 
-	pi.registerTool({
-		name: "analyze_stock",
-		label: "Analyze Stock",
-		description: "生成单只股票的 K 线自然语言描述。骨架阶段返回 mock 描述。",
-		promptSnippet: "把个股 K 线转成自然语言描述，供 GLM5.1 判断形态。",
-		parameters: Type.Object({
-			symbol: Type.String({ description: "股票代码，例如 000001" }),
-			mock: Type.Optional(
-				Type.Boolean({ description: "是否强制使用 mock 数据" }),
-			),
-		}),
-		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			const args = ["--symbol", params.symbol];
-			if (params.mock !== false) args.push("--mock");
-			const result = await runPython(ctx.cwd, "analyze_stock.py", args);
-			return {
-				content: [{ type: "text", text: result.stdout }],
-				details: { stderr: result.stderr, data: parseJson(result.stdout) },
-			};
-		},
-	});
-
+	// ── Command: /scan ──────────────────────────────────────────
+	// pi agent 主导的完整扫描流程
 	pi.registerCommand("scan", {
-		description: "执行一次 sagent 每日收盘后扫描",
+		description:
+			"执行 sagent 每日扫描：量化粗筛 → LLM 判断 → 写入持仓 → 飞书推送",
 		handler: async (_args, ctx) => {
+			ctx.ui.notify("sagent /scan 开始：正在准备数据...", "info");
+
 			try {
-				const result = await runPython(ctx.cwd, "market_scan.py", [
+				// Step 1: 量化粗筛
+				const prepareResult = await runPython(ctx.cwd, "prepare_scan.py", [
 					"--fixture",
 					"fixtures/market/sample_market.json",
 				]);
-				const notification = buildScanNotification(result.stdout);
-				const feishuResult = await runPythonSafe(ctx.cwd, "notify_feishu.py", [
-					"--title",
-					"sagent 扫描结果",
-					"--text",
-					notification,
-				]);
-				ctx.ui.notify("sagent /scan 已完成", "info");
+				const data = parseJson(prepareResult.stdout);
+
+				// Step 2: 把结构化数据发给 pi agent，让 pi 用自身模型做判断
+				const candidateSummaries = (data.candidates ?? [])
+					.map(
+						(c: any) =>
+							`- ${c.symbol} ${c.name} | 板块: ${c.sector} | 关键低点: ${c.kline_key_low}\n  K线: ${c.kline_description}`,
+					)
+					.join("\n\n");
+
+				const sectorSummaries = (data.sectors ?? [])
+					.map(
+						(s: any) =>
+							`- ${s.sector}: ${s.level}${s.needs_llm ? " (需LLM判断)" : ""}`,
+					)
+					.join("\n");
+
+				const portfolioInfo =
+					data.portfolio?.positions?.length > 0
+						? `持仓 ${data.portfolio.positions.length} 只，建议: ${JSON.stringify(data.portfolio.suggestions)}`
+						: "无持仓";
+
 				pi.sendMessage(
 					{
-						customType: "sagent-scan-result",
-						content: `# sagent 扫描结果\n\n\`\`\`json\n${result.stdout}\n\`\`\`\n\n## 飞书推送\n\n\`\`\`json\n${feishuResult.stdout}\n\`\`\`\n\n仅作研究和辅助分析，不构成投资建议。`,
+						customType: "sagent-scan-ready",
+						content: `# sagent 扫描数据已就绪
+
+## 板块验证
+${sectorSummaries}
+
+## 候选股（${(data.candidates ?? []).length} 只）
+${candidateSummaries || "无候选股"}
+
+## 持仓状态
+${portfolioInfo}
+
+---
+
+请使用 **a-share-main-trend** skill 对以上数据做判断：
+1. 对 needs_llm 的板块判断主线/弱主线/非主线
+2. 对每只候选股判断买入/观察/放弃，给出 key_low、止损价、无效条件
+3. 判断完成后用 **apply_decision** tool 写入 portfolio
+
+⚠️ 仅作研究和辅助分析，不构成投资建议。`,
 						display: true,
-						details: {
-							stderr: [result.stderr, feishuResult.stderr]
-								.filter(Boolean)
-								.join("\n"),
-							data: parseJson(result.stdout),
-							feishu: parseJson(feishuResult.stdout),
-						},
+						details: data,
 					},
-					{ triggerTurn: false, deliverAs: "nextTurn" },
+					{ triggerTurn: true, deliverAs: "nextTurn" },
 				);
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);

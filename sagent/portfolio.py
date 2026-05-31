@@ -73,6 +73,7 @@ def confirm_buy(
         trade_date=trade_date,
     )
     portfolio.positions.append(position)
+    portfolio.cash -= amount
     portfolio.weekly_open_count += 1
     portfolio.trade_history.append(
         {

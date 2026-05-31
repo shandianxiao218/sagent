@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "files": {
+    ".pi\\extensions\\sagent\\index.ts": {
+      "latest": {
+        "commit": "d01211b",
+        "timestamp": "2026-05-31T14:59:30.487Z",
+        "mi": 23.5,
+        "cognitive": 35,
+        "nesting": 4,
+        "lines": 221,
+        "maxCyclomatic": 12,
+        "entropy": 6.11
+      },
+      "history": [
+        {
+          "commit": "d01211b",
+          "timestamp": "2026-05-31T14:59:30.487Z",
+          "mi": 23.5,
+          "cognitive": 35,
+          "nesting": 4,
+          "lines": 221,
+          "maxCyclomatic": 12,
+          "entropy": 6.11
+        }
+      ],
+      "trend": "stable"
+    }
+  },
+  "capturedAt": "2026-05-31T14:59:35.501Z"
+}
