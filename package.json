@@ -1,0 +1,23 @@
+{
+  "name": "sagent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "基于 pi 的 A 股主线交易分析 agent。",
+  "type": "module",
+  "scripts": {
+    "scan:mock": "python scripts/market_scan.py --mock",
+    "portfolio:check": "python scripts/portfolio.py check",
+    "analyze:mock": "python scripts/analyze_stock.py --symbol 000001 --mock",
+    "notify:mock": "python scripts/notify_feishu.py --title sagent测试 --text 飞书推送dry-run测试 --dry-run",
+    "test": "python -m pytest tests/test_sagent_behaviors.py -q",
+    "scan:fixture": "python scripts/market_scan.py --fixture fixtures/market/sample_market.json"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "latest",
+    "typebox": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "typescript": "latest"
+  }
+}

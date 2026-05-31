@@ -1,0 +1,22 @@
+{
+  "models": {
+    "defaultJudgementModel": "GLM5.1",
+    "optionalJudgementModels": ["GPT-5.5"],
+    "fallbackChain": {"GPT-5.5": "GLM5.1"},
+    "notes": "默认使用 GLM5.1。如配置 GPT-5.5 为主模型，额度用完时 FallbackLLMClient 自动降级到 GLM5.1。降级事件记录在扫描结果的 fallback_events 字段。"
+  },
+  "scan": {
+    "market": "A-share",
+    "mode": "manual-after-close",
+    "maxNewPositionsPerWeek": 2,
+    "positionSizeRatio": 0.1
+  },
+  "portfolio": {
+    "path": "portfolio.json"
+  },
+  "push": {
+    "feishuEnabled": false,
+    "feishuWebhookEnv": "SAGENT_FEISHU_WEBHOOK",
+    "notes": "默认不启用飞书；配置 SAGENT_FEISHU_WEBHOOK 并开启 feishuEnabled 后 /scan 自动推送，推送失败不影响本地扫描结果。"
+  }
+}

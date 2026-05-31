@@ -1,0 +1,46 @@
+{
+  "success": true,
+  "issues": [
+    {
+      "type": "file",
+      "name": ".pi/extensions/sagent/index.ts",
+      "file": ".pi/extensions/sagent/index.ts"
+    },
+    {
+      "type": "dependency",
+      "name": "@earendil-works/pi-coding-agent",
+      "file": "package.json",
+      "line": 16
+    },
+    {
+      "type": "dependency",
+      "name": "typebox",
+      "file": "package.json",
+      "line": 17
+    }
+  ],
+  "unusedExports": [],
+  "unusedFiles": [
+    {
+      "type": "file",
+      "name": ".pi/extensions/sagent/index.ts",
+      "file": ".pi/extensions/sagent/index.ts"
+    }
+  ],
+  "unusedDeps": [
+    {
+      "type": "dependency",
+      "name": "@earendil-works/pi-coding-agent",
+      "file": "package.json",
+      "line": 16
+    },
+    {
+      "type": "dependency",
+      "name": "typebox",
+      "file": "package.json",
+      "line": 17
+    }
+  ],
+  "unlistedDeps": [],
+  "summary": "Found 3 issues"
+}
