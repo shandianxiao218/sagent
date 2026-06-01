@@ -25,7 +25,7 @@ from sagent.llm import (
     judge_sector,
     judge_stock,
 )
-from sagent.models import DailyBar
+from sagent.models import DailyBar, Decision
 from sagent.portfolio import PortfolioStore, confirm_buy, monitor_positions
 from sagent.scan import run_scan
 from sagent.sector import summarize_sectors, validate_mainline_sectors
@@ -2563,3 +2563,143 @@ def test_portfolio_nav_curve():
         assert nav.cash >= 0
         assert nav.position_value >= 0
         assert nav.open_positions >= 0
+
+
+def test_build_stock_prompt_includes_key_low_instruction():
+    """验证 build_stock_prompt 输出中包含 key_low 识别指令。"""
+    description = describe_stock("000001", fixture_data().daily_bars("000001"))
+    sector_decision = Decision(
+        action="主线",
+        reason="测试",
+        model="GLM5.1",
+        confidence=0.8,
+    )
+    prompt = build_stock_prompt(description, sector_decision)
+
+    assert "key_low" in prompt
+    assert "利弗摩尔" in prompt
+    assert "结构转折低点" in prompt
+    assert "不是简单的前 N 日最低价" in prompt
+    assert "止跌回升点" in prompt
+    assert '"key_low"' in prompt
+
+
+def test_describe_stock_pullback_structure():
+    """验证描述文本中包含回调结构信息。"""
+    description = describe_stock("000001", fixture_data().daily_bars("000001"))
+
+    # 描述文本应包含回调过程描述（关键转折低点或 swing 相关信息）
+    has_structure_info = (
+        "结构转折低点" in description.text
+        or "更高的低点" in description.text
+        or "更低的低点" in description.text
+        or "回调过程中" in description.text
+    )
+    assert has_structure_info, f"描述文本缺少回调结构信息: {description.text}"
+
+
+# ─── K 线绘图测试 (#33) ────────────────────────────────────────────
+
+
+def test_chart_plot_stock_kline_returns_figure():
+    """plot_stock_kline 接受 bars 列表并返回 plotly Figure。"""
+    import plotly.graph_objects as go
+
+    from sagent.chart import plot_stock_kline
+
+    bars = fixture_data().daily_bars("000001")
+    fig = plot_stock_kline(bars, title="测试K线图")
+
+    assert isinstance(fig, go.Figure)
+    assert fig.layout.title.text == "测试K线图"
+    # 至少有蜡烛图和成交量两个 trace
+    assert len(fig.data) >= 2
+
+
+def test_chart_annotations_and_hlines():
+    """带标注和水平线调用，验证图层数量。"""
+    import plotly.graph_objects as go
+
+    from sagent.chart import plot_stock_kline
+    from sagent.models import ChartAnnotation, ChartHLine, ChartRange
+
+    bars = fixture_data().daily_bars("000001")
+    dates = [bar.date for bar in bars]
+    mid_date = dates[len(dates) // 2]
+    mid_close = bars[len(bars) // 2].close
+    first_date = dates[0]
+    last_date = dates[-1]
+
+    annotations = [
+        ChartAnnotation(
+            date=mid_date,
+            price=mid_close,
+            text="买入",
+            color="red",
+            symbol="triangle-up",
+            size=14,
+        ),
+        ChartAnnotation(
+            date=last_date,
+            price=bars[-1].close,
+            text="卖出",
+            color="green",
+            symbol="triangle-down",
+            size=14,
+        ),
+    ]
+    hlines = [
+        ChartHLine(price=mid_close * 0.95, color="red", dash="dash", label="止损"),
+        ChartHLine(price=mid_close * 1.1, color="blue", dash="dot", label="止盈"),
+    ]
+    ranges = [
+        ChartRange(
+            start_date=first_date,
+            end_date=mid_date,
+            color="rgba(0,255,0,0.05)",
+            label="上涨区间",
+        ),
+    ]
+
+    fig = plot_stock_kline(
+        bars,
+        title="标注测试",
+        annotations=annotations,
+        hlines=hlines,
+        highlight_ranges=ranges,
+    )
+
+    assert isinstance(fig, go.Figure)
+    # 蜡烛图 + 成交量 + 2个标注点 = 4 traces
+    # hlines 和 vrect 不算 trace（它们是 shape/annotation）
+    assert len(fig.data) == 4  # 1 candlestick + 1 bar + 2 scatter
+
+
+def test_chart_export_html(tmp_path):
+    """导出到 HTML 文件，验证文件存在且非空。"""
+    from sagent.chart import plot_stock_kline
+    from sagent.models import ChartAnnotation, ChartHLine
+
+    bars = fixture_data().daily_bars("000001")
+    output = str(tmp_path / "test_kline.html")
+
+    plot_stock_kline(
+        bars,
+        title="HTML导出测试",
+        annotations=[
+            ChartAnnotation(
+                date=bars[-1].date,
+                price=bars[-1].close,
+                text="标记",
+            )
+        ],
+        hlines=[ChartHLine(price=bars[-1].close * 0.95, label="止损线")],
+        output_path=output,
+    )
+
+    assert Path(output).exists()
+    content = Path(output).read_text(encoding="utf-8")
+    assert len(content) > 1000  # 非空 HTML
+    assert "plotly" in content
+    # hline label 可能为 unicode escape 编码
+    assert "\\u6b62\\u635f" in content or "止损线" in content

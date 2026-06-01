@@ -51,6 +51,13 @@ def build_stock_prompt(description: KlineDescription, sector_decision: Decision)
         "只判断上升趋势中回调、整理并突破短期回调趋势的标的。\n"
         f"板块判断：{sector_decision.action}，理由：{sector_decision.reason}\n"
         f"K线描述：{description.text}\n"
+        "\n"
+        "请根据 K 线描述识别买点前关键低点（key_low）：\n"
+        "- 这是利弗摩尔体系中的同级别结构转折低点\n"
+        "- 不是简单的前 N 日最低价\n"
+        "- 而是回调波段中最后一个结构性的止跌回升点\n"
+        "- 在 JSON 输出中包含 key_low 字段（价格数值）\n"
+        "\n"
         "请用 JSON 格式输出：\n"
         '{"action": "买入/观察/放弃", "reason": "...", "confidence": 0.0-1.0, '
         '"key_low": 0.00, "invalid_condition": "...", "risk": "..."}'

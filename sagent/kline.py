@@ -141,6 +141,55 @@ def find_trend_break_ref(
     return bars[key_low_idx].low, f"与止损位相同（{bars[key_low_idx].date}）"
 
 
+def describe_pullback_structure(bars: list[DailyBar], signal_idx: int) -> str:
+    """生成回调结构的自然语言描述。
+
+    基于 find_key_low 和 find_swing_lows 的结果，
+    描述回调过程中的结构转折低点序列。
+    """
+    window = bars[: signal_idx + 1]
+    key_low, source, kl_idx = find_key_low(window)
+
+    # 在 key_low 附近区域（前20日到信号日）检测 swing lows
+    start = max(0, kl_idx - 20)
+    region = window[start:]
+    swing_lows = find_swing_lows(region)
+    # 映射回 window 索引
+    global_swings = [(start + idx, low) for idx, low in swing_lows]
+
+    if not global_swings:
+        return f"回调区间内未检测到明确的结构转折低点，key_low={key_low:.2f}。"
+
+    # 构建转折点描述
+    parts: list[str] = []
+    for i, (idx, low) in enumerate(global_swings):
+        bar = window[idx]
+        # 从日期中提取月-日
+        date_str = bar.date
+        if len(date_str) >= 10:
+            md = date_str[5:10]  # "MM-DD"
+        else:
+            md = date_str
+
+        if i == 0:
+            parts.append(f"{md} 出现结构转折低点 {low:.2f}")
+        else:
+            prev_low = global_swings[i - 1][1]
+            if low > prev_low:
+                parts.append(f"{md} 形成更高的低点 {low:.2f}")
+            elif low < prev_low:
+                parts.append(f"{md} 出现更低的低点 {low:.2f}")
+            else:
+                parts.append(f"{md} 形成平齐低点 {low:.2f}")
+
+    if len(parts) == 1:
+        detail = parts[0]
+    else:
+        detail = "，".join(parts[:-1]) + "，随后" + parts[-1]
+
+    return f"回调过程中{detail}。"
+
+
 def describe_stock(
     symbol: str, bars: list[DailyBar], max_chars: int = 900
 ) -> KlineDescription:
@@ -162,6 +211,9 @@ def describe_stock(
     target_2_5r = current + 2.5 * risk
     target_3r = current + 3.0 * risk
 
+    # 生成回调结构描述
+    pullback_desc = describe_pullback_structure(bars, len(bars) - 1)
+
     text = (
         f"{symbol} 当前价格 {current:.2f}，位于20日均线 {ma20:.2f} 和60日均线 {ma60:.2f} 附近；"
         f"趋势上，前期形成明显上升波段，近期从阶段高点 {recent_high:.2f} 回调至候选关键低点 {key_low:.2f}；"
@@ -169,6 +221,7 @@ def describe_stock(
         f"成交量为近10日均量的 {volume_ratio:.2f} 倍，需关注突破是否放量确认；"
         f"风险位置为买点前关键低点 {key_low:.2f}（{key_low_source}），跌破则形态无效；"
         f"当前风险 {risk:.2f} 元，盈亏比 R=2.5 价位 {target_2_5r:.2f}、R=3 价位 {target_3r:.2f}，止损价 {key_low:.2f}。"
+        f"{pullback_desc}"
     )
     if len(text) > max_chars:
         text = text[: max_chars - 1] + "…"
