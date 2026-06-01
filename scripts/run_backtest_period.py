@@ -24,6 +24,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from sagent.backtest_engine import simulate_trade, run_backtest_engine
+from sagent.backtest_portfolio import run_portfolio_backtest
 from sagent.kline import describe_stock
 from sagent.models import DailyBar
 from sagent.technical import _ma
@@ -635,8 +637,327 @@ def run_backtest(
     }
 
 
+# ─── 逐日止损/止盈引擎回测 ────────────────────────────────────
+
+
+def run_engine_backtest(
+    start_date: str = "2025-10-01",
+    end_date: str = "2026-05-31",
+    sample_size: int = 500,
+    seed: int = 42,
+    window_step: int = 3,
+    min_avg_amount: float = 100_000_000,
+    initial_cash: float = 100_000,
+    max_holding: int = 20,
+) -> dict:
+    """使用逐日止损/止盈引擎 + 组合管理的回测。
+
+    与 run_backtest() 的区别：
+    - 使用 backtest_engine.simulate_trade() 逐日遍历，而非简单持有 20 天
+    - 使用 backtest_portfolio.run_portfolio_backtest() 模拟资金管理
+    - 每笔交易有退出方式（止损/趋势破坏/持有到期）
+    - 组合管理：初始资金、每笔 10%、每周最多 2 笔
+    """
+    print(
+        f"=== 引擎回测 (逐日止损/止盈 + 组合管理): {start_date} ~ {end_date} ===",
+        file=sys.stderr,
+    )
+    print(
+        f"参数: 采样{sample_size}只, 步长{window_step}日, "
+        f"初始资金{initial_cash:,.0f}, 最大持有{max_holding}天",
+        file=sys.stderr,
+    )
+
+    # 1. 获取股票列表
+    print("\n[1/6] 获取A股列表...", file=sys.stderr)
+    all_stocks = fetch_all_stocks()
+    valid_prefixes = ("000", "001", "002", "300", "600", "601", "603")
+    all_stocks = [
+        s for s in all_stocks if str(s.get("code", "")).startswith(valid_prefixes)
+    ]
+    print(f"  主板共 {len(all_stocks)} 只", file=sys.stderr)
+
+    random.seed(seed)
+    sample = random.sample(all_stocks, min(sample_size, len(all_stocks)))
+    print(f"  采样 {len(sample)} 只", file=sys.stderr)
+
+    # 2. 获取K线 + 检测信号（缓存 bars 供引擎使用）
+    print("\n[2/6] 获取K线并检测信号...", file=sys.stderr)
+    all_signals: list[dict] = []
+    bars_cache: dict[str, list[DailyBar]] = {}
+    fetch_errors = 0
+    short_bars = 0
+    low_amount_count = 0
+    name_cache: dict[str, str] = {}
+
+    for i, stock in enumerate(sample):
+        symbol = str(stock.get("code", ""))
+        name = str(stock.get("name", ""))
+        name_cache[symbol] = name
+
+        if (i + 1) % 100 == 0:
+            print(
+                f"  进度: {i + 1}/{len(sample)}, 信号: {len(all_signals)}",
+                file=sys.stderr,
+            )
+
+        try:
+            bars = fetch_bars(symbol, offset=370)
+        except Exception:
+            fetch_errors += 1
+            continue
+
+        if len(bars) < 300:
+            short_bars += 1
+            continue
+
+        # 缓存 bars
+        bars_cache[symbol] = bars
+
+        # 成交额过滤
+        recent_bars = bars[-20:]
+        avg_amount = mean(bar.amount for bar in recent_bars) if recent_bars else 0
+        if avg_amount < min_avg_amount:
+            low_amount_count += 1
+            continue
+
+        # 找到日期范围内的索引
+        range_start_idx = None
+        range_end_idx = None
+        for j, bar in enumerate(bars):
+            if bar.date >= start_date and range_start_idx is None:
+                range_start_idx = j
+            if bar.date <= end_date:
+                range_end_idx = j
+
+        if range_start_idx is None or range_end_idx is None:
+            continue
+
+        scan_start = max(260, range_start_idx)
+        scan_end = min(range_end_idx, len(bars) - max_holding)
+
+        for check_idx in range(scan_start, scan_end, window_step):
+            sig_date = bars[check_idx].date
+            if sig_date < start_date or sig_date > end_date:
+                continue
+
+            metrics = check_signal(bars, check_idx)
+            if metrics is None:
+                continue
+
+            all_signals.append(
+                {
+                    "symbol": symbol,
+                    "name": name,
+                    "signal_date": sig_date,
+                    "signal_idx": check_idx,
+                    "metrics": metrics,
+                }
+            )
+
+    print(
+        f"\n  完成: 错误{fetch_errors}, K线不足{short_bars}, "
+        f"成交额不足{low_amount_count}",
+        file=sys.stderr,
+    )
+    print(f"  总信号: {len(all_signals)}", file=sys.stderr)
+
+    if not all_signals:
+        return {"error": "未找到信号", "total_signals": 0}
+
+    # 3. 逐日止损/止盈回测
+    print("\n[3/6] 逐日止损/止盈引擎回测...", file=sys.stderr)
+    engine_results: list[dict] = []
+
+    for sig in all_signals:
+        symbol = sig["symbol"]
+        bars = bars_cache.get(symbol, [])
+        signal_idx = sig["signal_idx"]
+        if not bars or signal_idx is None:
+            continue
+
+        trade = simulate_trade(bars, signal_idx, max_holding=max_holding)
+        engine_results.append(
+            {
+                "symbol": symbol,
+                "name": sig["name"],
+                "signal_date": sig["signal_date"],
+                "entry_price": trade.entry_price,
+                "key_low": trade.key_low,
+                "stop_loss_price": trade.stop_loss_price,
+                "exit_reason": trade.exit_reason,
+                "exit_date": trade.exit_date,
+                "exit_price": trade.exit_price,
+                "holding_days": trade.holding_days,
+                "total_return": trade.total_return,
+                "half_profit_locked": trade.half_profit_locked,
+                "half_profit_r": trade.half_profit_r,
+                "max_r": trade.max_r,
+                "stop_loss_type": trade.stop_loss_type,
+                "trend_break_ref": trade.trend_break_ref,
+                "buy_and_hold_return": trade.buy_and_hold_return,
+            }
+        )
+
+    print(f"  引擎回测完成: {len(engine_results)} 笔交易", file=sys.stderr)
+
+    # 4. 组合管理回测
+    print("\n[4/6] 组合管理回测...", file=sys.stderr)
+    portfolio_signals = [
+        {
+            "symbol": s["symbol"],
+            "signal_date": s["signal_date"],
+            "signal_idx": s["signal_idx"],
+        }
+        for s in all_signals
+    ]
+    portfolio_stats = run_portfolio_backtest(
+        bars_cache,
+        portfolio_signals,
+        initial_cash=initial_cash,
+        max_holding=max_holding,
+    )
+    print(
+        f"  组合回测完成: {portfolio_stats.total_trades} 笔交易, "
+        f"总收益 {portfolio_stats.total_return:.2%}",
+        file=sys.stderr,
+    )
+
+    # 5. 汇总统计
+    print("\n[5/6] 汇总统计...", file=sys.stderr)
+
+    def safe_mean(values: list[float]) -> float | None:
+        return round(mean(values), 4) if values else None
+
+    all_returns = [t["total_return"] for t in engine_results]
+    sl_trades = [t for t in engine_results if t["exit_reason"] == "止损"]
+    tp_trades = [t for t in engine_results if t["exit_reason"] == "半仓止盈后趋势破坏"]
+    nat_trades = [t for t in engine_results if t["exit_reason"] == "持有到期"]
+    half_triggered = [t for t in engine_results if t["half_profit_locked"]]
+    hold_returns = [t["buy_and_hold_return"] for t in engine_results]
+
+    engine_summary = {
+        "total_trades": len(engine_results),
+        "stop_loss_count": len(sl_trades),
+        "take_profit_count": len(tp_trades),
+        "natural_exit_count": len(nat_trades),
+        "stop_loss_rate": round(len(sl_trades) / max(len(engine_results), 1), 4),
+        "take_profit_rate": round(len(tp_trades) / max(len(engine_results), 1), 4),
+        "natural_exit_rate": round(len(nat_trades) / max(len(engine_results), 1), 4),
+        "avg_return_all": safe_mean(all_returns),
+        "avg_return_stop_loss": safe_mean([t["total_return"] for t in sl_trades]),
+        "avg_return_take_profit": safe_mean([t["total_return"] for t in tp_trades]),
+        "avg_return_natural": safe_mean([t["total_return"] for t in nat_trades]),
+        "win_rate": round(
+            sum(1 for r in all_returns if r > 0) / max(len(all_returns), 1), 4
+        ),
+        "avg_holding_days": safe_mean(
+            [float(t["holding_days"]) for t in engine_results]
+        ),
+        "half_profit_triggered_count": len(half_triggered),
+        "half_profit_triggered_rate": round(
+            len(half_triggered) / max(len(engine_results), 1), 4
+        ),
+        "avg_return_half_triggered": safe_mean(
+            [t["total_return"] for t in half_triggered]
+        ),
+        "avg_return_half_not_triggered": safe_mean(
+            [t["total_return"] for t in engine_results if not t["half_profit_locked"]]
+        ),
+        "buy_and_hold_avg_return": safe_mean(hold_returns),
+        "strategy_vs_buyhold_diff": round(
+            (safe_mean(all_returns) or 0) - (safe_mean(hold_returns) or 0), 4
+        ),
+    }
+
+    # 按月分组
+    monthly_engine: dict[str, dict] = {}
+    monthly_groups: dict[str, list[dict]] = defaultdict(list)
+    for t in engine_results:
+        month = t["signal_date"][:7]
+        monthly_groups[month].append(t)
+
+    for month in sorted(monthly_groups.keys()):
+        group = monthly_groups[month]
+        returns = [t["total_return"] for t in group]
+        sl = [t for t in group if t["exit_reason"] == "止损"]
+        monthly_engine[month] = {
+            "total": len(group),
+            "avg_return": safe_mean(returns),
+            "win_rate": round(
+                sum(1 for r in returns if r > 0) / max(len(returns), 1), 4
+            ),
+            "stop_loss_count": len(sl),
+            "avg_holding_days": safe_mean([float(t["holding_days"]) for t in group]),
+        }
+
+    # 旧方式对比（买入持有 20 天）
+    old_vs_new = {
+        "old_buyhold_avg": safe_mean(hold_returns),
+        "new_engine_avg": safe_mean(all_returns),
+        "diff": round(
+            (safe_mean(all_returns) or 0) - (safe_mean(hold_returns) or 0), 4
+        ),
+        "note": "old=买入持有20天收益, new=逐日止损止盈综合收益",
+    }
+
+    # 6. 组装输出
+    print("\n[6/6] 输出...", file=sys.stderr)
+
+    return {
+        "meta": {
+            "scope": f"引擎回测 {start_date}~{end_date}（逐日止损/止盈 + 组合管理）",
+            "disclaimer": (
+                "本回测不构成投资建议。LLM判断为规则引擎模拟，"
+                "不等同于真实LLM判断。使用逐日止损/止盈引擎。"
+            ),
+            "parameters": {
+                "start_date": start_date,
+                "end_date": end_date,
+                "sample_size": sample_size,
+                "initial_cash": initial_cash,
+                "max_holding": max_holding,
+                "total_scanned": len(sample),
+                "fetch_errors": fetch_errors,
+                "short_bars": short_bars,
+                "low_amount_count": low_amount_count,
+                "min_avg_amount": min_avg_amount,
+            },
+        },
+        "engine_summary": engine_summary,
+        "monthly_engine": monthly_engine,
+        "old_vs_new": old_vs_new,
+        "portfolio": {
+            "initial_cash": portfolio_stats.initial_cash,
+            "final_value": portfolio_stats.final_value,
+            "total_return": portfolio_stats.total_return,
+            "max_drawdown": portfolio_stats.max_drawdown,
+            "sharpe_ratio": portfolio_stats.sharpe_ratio,
+            "total_trades": portfolio_stats.total_trades,
+            "winning_trades": portfolio_stats.winning_trades,
+            "losing_trades": portfolio_stats.losing_trades,
+            "win_rate": portfolio_stats.win_rate,
+            "avg_profit": portfolio_stats.avg_profit,
+            "avg_loss": portfolio_stats.avg_loss,
+            "profit_loss_ratio": portfolio_stats.profit_loss_ratio,
+            "max_single_profit": portfolio_stats.max_single_profit,
+            "max_single_loss": portfolio_stats.max_single_loss,
+            "stop_loss_count": portfolio_stats.stop_loss_count,
+            "take_profit_count": portfolio_stats.take_profit_count,
+            "natural_exit_count": portfolio_stats.natural_exit_count,
+            "avg_holding_days": portfolio_stats.avg_holding_days,
+            "capital_utilization": portfolio_stats.capital_utilization,
+            "nav_curve_count": len(portfolio_stats.nav_curve),
+        },
+        "trades": engine_results,
+    }
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        description="sagent 回测脚本。默认使用旧方式（买入持有20天），"
+        "--engine 使用逐日止损/止盈引擎。"
+    )
     parser.add_argument("--start", default="2025-10-01")
     parser.add_argument("--end", default="2026-05-31")
     parser.add_argument("--sample", type=int, default=1500)
@@ -647,17 +968,39 @@ def main() -> None:
         default=100_000_000,
         help="最低日均成交额（元），默认1亿",
     )
+    parser.add_argument(
+        "--engine",
+        action="store_true",
+        help="使用逐日止损/止盈引擎 + 组合管理回测",
+    )
+    parser.add_argument(
+        "--initial-cash",
+        type=float,
+        default=100_000,
+        help="组合管理初始资金（仅 --engine 模式），默认 100000",
+    )
     args = parser.parse_args()
 
-    result = run_backtest(
-        start_date=args.start,
-        end_date=args.end,
-        sample_size=args.sample,
-        min_avg_amount=args.min_amount,
-    )
+    if args.engine:
+        result = run_engine_backtest(
+            start_date=args.start,
+            end_date=args.end,
+            sample_size=args.sample,
+            min_avg_amount=args.min_amount,
+            initial_cash=args.initial_cash,
+        )
+        default_output = ROOT / "backtest_engine_v1.json"
+    else:
+        result = run_backtest(
+            start_date=args.start,
+            end_date=args.end,
+            sample_size=args.sample,
+            min_avg_amount=args.min_amount,
+        )
+        default_output = ROOT / "backtest_oct25_jun26.json"
 
     text = json.dumps(result, ensure_ascii=False, indent=2, default=str)
-    out_path = Path(args.output) if args.output else ROOT / "backtest_oct25_jun26.json"
+    out_path = Path(args.output) if args.output else default_output
     out_path.write_text(text, encoding="utf-8")
     print(f"\n结果已写入 {out_path}", file=sys.stderr)
 
