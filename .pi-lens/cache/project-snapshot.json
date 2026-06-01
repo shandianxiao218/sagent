@@ -1,7 +1,7 @@
 {
   "version": 1,
   "projectRoot": "D:/suishi/sagent",
-  "generatedAt": "2026-06-01T15:02:00.324Z",
+  "generatedAt": "2026-06-01T22:29:10.092Z",
   "seq": 192,
   "files": {
     "D:/suishi/sagent/close_issues.py": {
@@ -269,6 +269,13 @@
       "size": 10316,
       "imports": [],
       "lastSeq": 0
+    },
+    "D:/suishi/sagent/sagent/backtest_portfolio.py": {
+      "path": "D:/suishi/sagent/sagent/backtest_portfolio.py",
+      "mtimeMs": 1780352948937.0117,
+      "size": 18930,
+      "imports": [],
+      "lastSeq": 0
     }
   },
   "symbols": {},
@@ -276,6 +283,7 @@
     "D:/suishi/sagent/close_issues.py": [],
     "D:/suishi/sagent/sagent/__init__.py": [],
     "D:/suishi/sagent/sagent/backtest_engine.py": [],
+    "D:/suishi/sagent/sagent/backtest_portfolio.py": [],
     "D:/suishi/sagent/sagent/backtest.py": [],
     "D:/suishi/sagent/sagent/config.py": [],
     "D:/suishi/sagent/sagent/data.py": [],

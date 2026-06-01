@@ -2273,3 +2273,293 @@ def test_simulate_trade_trend_break_uses_ref_not_key_low():
     ref2, desc2 = find_trend_break_ref(bars, signal_idx, key_low_idx=40)
     assert ref2 == 61.0, f"Expected ref=61.0, got {ref2}"
     assert "\u66f4\u9ad8\u4f4e\u70b9" in desc2
+
+
+# ---------------------------------------------------------------------------
+# backtest_portfolio 组合级回测测试
+# ---------------------------------------------------------------------------
+
+
+def _make_portfolio_test_bars(
+    symbol: str,
+    dates_and_prices: list[tuple[str, float]],
+    low_pct: float = 0.02,
+    high_pct: float = 0.02,
+) -> list[DailyBar]:
+    """构造组合回测测试用的 bars。
+
+    Args:
+        symbol: 股票代码
+        dates_and_prices: [(date, close), ...]
+        low_pct: low = close * (1 - low_pct)
+        high_pct: high = close * (1 + high_pct)
+
+    Returns:
+        DailyBar 列表
+    """
+    bars: list[DailyBar] = []
+    for date_str, close in dates_and_prices:
+        bars.append(
+            _make_bar(
+                symbol,
+                date_str,
+                close * 0.99,
+                close * (1 + high_pct),
+                close * (1 - low_pct),
+                close,
+            )
+        )
+    return bars
+
+
+def _make_signal_bars(
+    symbol: str,
+    entry_price: float,
+    key_low_target: float,
+    signal_date: str,
+    post_days: int = 25,
+    post_prices: list[dict] | None = None,
+) -> tuple[list[DailyBar], int]:
+    """构造组合回测用的完整 bars（包含前置 bars + 信号日 + 后续 bars）。"""
+    from datetime import datetime, timedelta
+
+    base = datetime(2026, 1, 1)
+    num_pre = 40
+
+    # 前置 bars：上升趋势 + 回调 + swing low
+    bars: list[DailyBar] = []
+    high_price = entry_price + 3
+    mid_price = (key_low_target + high_price) / 2
+
+    for i in range(num_pre):
+        d = base + timedelta(days=i)
+        date_str = d.strftime("%Y-%m-%d")
+
+        if i < 15:
+            low = key_low_target - 2
+            high_val = key_low_target
+            close = key_low_target - 1
+        elif i < 25:
+            frac = (i - 15) / 10
+            low = key_low_target - 2 + frac * (mid_price - key_low_target + 2)
+            high_val = low + 2
+            close = low + 1
+        elif i < 30:
+            low = entry_price + 0.5
+            high_val = entry_price + 3
+            close = entry_price + 1.5
+        elif i < 35:
+            frac = (i - 30) / 5
+            low = entry_price + 0.5 - frac * (entry_price + 0.5 - key_low_target - 1)
+            high_val = low + 2
+            close = low + 1
+        elif i == 35:
+            low = key_low_target
+            high_val = key_low_target + 1
+            close = key_low_target + 0.5
+        elif i < num_pre - 1:
+            frac = (i - 36) / 3
+            low = key_low_target + frac * (entry_price - key_low_target - 1)
+            high_val = low + 2
+            close = low + 1
+        else:
+            # signal day
+            low = entry_price - 1
+            high_val = entry_price + 1
+            close = entry_price
+
+        bars.append(_make_bar(symbol, date_str, low + 0.2, high_val, low, close))
+
+    signal_idx = len(bars) - 1
+
+    # 后续 bars
+    sig_date = datetime.strptime(signal_date, "%Y-%m-%d")
+    if post_prices is None:
+        post_prices = [
+            {"high": entry_price + 1, "low": entry_price - 1, "close": entry_price}
+            for _ in range(post_days)
+        ]
+
+    for j, prices in enumerate(post_prices):
+        d = sig_date + timedelta(days=j + 1)
+        date_str = d.strftime("%Y-%m-%d")
+        bars.append(
+            _make_bar(
+                symbol,
+                date_str,
+                prices.get("open", prices["low"] + 0.5),
+                prices["high"],
+                prices["low"],
+                prices["close"],
+            )
+        )
+
+    return bars, signal_idx
+
+
+def test_portfolio_backtest_basic():
+    """基本组合回测：2 个信号，验证组合统计。"""
+    from sagent.backtest_portfolio import run_portfolio_backtest
+
+    # 股票 A：小涨后持有到期
+    bars_a, idx_a = _make_signal_bars(
+        symbol="PA",
+        entry_price=50.0,
+        key_low_target=45.0,
+        signal_date="2026-03-01",
+        post_prices=[
+            {"high": 51, "low": 49, "close": 50},
+            {"high": 52, "low": 50, "close": 51},
+            {"high": 53, "low": 51, "close": 52},
+            {"high": 52, "low": 50, "close": 51},
+            {"high": 53, "low": 51, "close": 52},
+        ]
+        + [{"high": 54, "low": 52, "close": 53}] * 20,
+    )
+
+    # 股票 B：小跌后持有到期
+    bars_b, idx_b = _make_signal_bars(
+        symbol="PB",
+        entry_price=30.0,
+        key_low_target=27.0,
+        signal_date="2026-03-02",
+        post_prices=[
+            {"high": 31, "low": 29, "close": 30},
+            {"high": 30, "low": 28, "close": 29},
+            {"high": 29, "low": 27, "close": 28},
+            {"high": 30, "low": 28, "close": 29},
+            {"high": 29, "low": 27, "close": 28},
+        ]
+        + [{"high": 29, "low": 27, "close": 28}] * 20,
+    )
+
+    bars_map = {"PA": bars_a, "PB": bars_b}
+    signals = [
+        {"symbol": "PA", "signal_date": "2026-03-01", "signal_idx": idx_a},
+        {"symbol": "PB", "signal_date": "2026-03-02", "signal_idx": idx_b},
+    ]
+
+    stats = run_portfolio_backtest(
+        bars_map, signals, initial_cash=100_000, max_holding=20
+    )
+
+    assert stats.total_trades >= 2
+    assert stats.initial_cash == 100_000
+    assert stats.final_value > 0
+    assert len(stats.nav_curve) > 0
+    assert 0.0 <= stats.win_rate <= 1.0
+
+
+def test_portfolio_weekly_limit_enforced():
+    """同周 3 个信号，只应开 2 个。"""
+    from sagent.backtest_portfolio import run_portfolio_backtest
+
+    # 构造 3 个同周信号
+    bars_map = {}
+    signals = []
+    for i, (sym, price) in enumerate([("S1", 50), ("S2", 60), ("S3", 70)]):
+        # 2026-03-02, 03-03, 03-04 都在 ISO week 10
+        d = f"2026-03-0{i + 2}"
+        bars, idx = _make_signal_bars(
+            symbol=sym,
+            entry_price=float(price),
+            key_low_target=float(price - 5),
+            signal_date=d,
+            post_prices=[{"high": price + 1, "low": price - 1, "close": float(price)}]
+            * 25,
+        )
+        bars_map[sym] = bars
+        signals.append({"symbol": sym, "signal_date": d, "signal_idx": idx})
+
+    stats = run_portfolio_backtest(
+        bars_map,
+        signals,
+        initial_cash=100_000,
+        max_holding=20,
+        max_weekly_open=2,
+    )
+
+    # 只有 2 笔开仓
+    assert stats.total_trades == 2, f"Expected 2 trades, got {stats.total_trades}"
+
+
+def test_portfolio_stop_loss_releases_capital():
+    """止损后资金可复用于后续买入。"""
+    from sagent.backtest_portfolio import run_portfolio_backtest
+
+    # 股票 A：3 天后止损
+    entry_a = 100.0
+    bars_a, idx_a = _make_signal_bars(
+        symbol="SA",
+        entry_price=entry_a,
+        key_low_target=90.0,
+        signal_date="2026-03-01",
+        post_prices=[
+            # 需要触发止损：low <= stop_loss = max(100*0.95, 90) = 95
+            {"high": 101, "low": 99, "close": 100},  # day 1: safe
+            {"high": 100, "low": 98, "close": 99},  # day 2: safe
+            {"high": 96, "low": 94, "close": 95},  # day 3: low=94 <= 95 → stop loss
+        ]
+        + [{"high": 100, "low": 97, "close": 99}] * 22,
+    )
+
+    # 股票 B：止损后几天才有信号
+    # 让 B 的信号日在 A 止损后（同周，A 已用 1 个额度）
+    entry_b = 50.0
+    bars_b, idx_b = _make_signal_bars(
+        symbol="SB",
+        entry_price=entry_b,
+        key_low_target=45.0,
+        signal_date="2026-03-05",  # 同周内的另一个交易日
+        post_prices=[{"high": 51, "low": 49, "close": 50}] * 25,
+    )
+
+    bars_map = {"SA": bars_a, "SB": bars_b}
+    signals = [
+        {"symbol": "SA", "signal_date": "2026-03-01", "signal_idx": idx_a},
+        {"symbol": "SB", "signal_date": "2026-03-05", "signal_idx": idx_b},
+    ]
+
+    stats = run_portfolio_backtest(
+        bars_map,
+        signals,
+        initial_cash=100_000,
+        max_holding=20,
+        max_weekly_open=2,
+    )
+
+    # 两个信号都应该开仓（A 止损后释放资金，B 在同周且额度剩余）
+    assert stats.total_trades == 2
+    # 验证有止损记录
+    assert stats.stop_loss_count >= 1
+
+
+def test_portfolio_nav_curve():
+    """净值曲线非空且单调递增的日期。"""
+    from sagent.backtest_portfolio import run_portfolio_backtest
+
+    bars, idx = _make_signal_bars(
+        symbol="NC",
+        entry_price=50.0,
+        key_low_target=45.0,
+        signal_date="2026-03-01",
+        post_prices=[{"high": 51, "low": 49, "close": 50}] * 25,
+    )
+
+    bars_map = {"NC": bars}
+    signals = [{"symbol": "NC", "signal_date": "2026-03-01", "signal_idx": idx}]
+
+    stats = run_portfolio_backtest(
+        bars_map, signals, initial_cash=100_000, max_holding=20
+    )
+
+    assert len(stats.nav_curve) > 0
+    # 日期应递增
+    dates = [nav.date for nav in stats.nav_curve]
+    assert dates == sorted(dates)
+    # 每个 NAV 的字段合法
+    for nav in stats.nav_curve:
+        assert nav.total_value > 0
+        assert nav.cash >= 0
+        assert nav.position_value >= 0
+        assert nav.open_positions >= 0
