@@ -2703,3 +2703,320 @@ def test_chart_export_html(tmp_path):
     assert "plotly" in content
     # hline label 可能为 unicode escape 编码
     assert "\\u6b62\\u635f" in content or "止损线" in content
+
+
+def test_plot_trade_lifecycle_returns_figure():
+    """plot_trade_lifecycle 基本调用返回 Figure。"""
+    import plotly.graph_objects as go
+
+    from sagent.backtest_engine import TradeLifecycle
+    from sagent.chart import plot_trade_lifecycle
+
+    bars = fixture_data().daily_bars("000001")
+
+    trade = TradeLifecycle(
+        symbol="000001",
+        signal_date=bars[-20].date,
+        entry_price=bars[-20].close,
+        key_low=bars[-20].close * 0.9,
+        stop_loss_price=bars[-20].close * 0.95,
+        exit_date=bars[-1].date,
+        exit_price=bars[-1].close,
+        exit_reason="持有到期",
+        holding_days=19,
+        daily_events=[
+            {"date": bars[-19 + i].date, "r_ratio": float(i) * 0.1, "event": ""}
+            for i in range(19)
+        ],
+        total_return=0.05,
+        half_profit_locked=False,
+        half_profit_r=0.0,
+        max_r=1.8,
+    )
+
+    fig = plot_trade_lifecycle(bars, trade)
+
+    assert isinstance(fig, go.Figure)
+    # 标题包含股票代码
+    assert "000001" in fig.layout.title.text
+    # 至少有蜡烛图 + 买入标注 + R值曲线
+    trace_types = [type(t).__name__ for t in fig.data]
+    assert "Candlestick" in trace_types
+    assert "Scatter" in trace_types
+
+
+def test_plot_signal_chart_returns_figure():
+    """plot_signal_chart 返回 plotly Figure，含止损/key_low/R=2.5 标注。"""
+    import plotly.graph_objects as go
+
+    from sagent.chart import plot_signal_chart
+
+    bars = fixture_data().daily_bars("000001")
+    signal_idx = len(bars) - 1
+
+    fig = plot_signal_chart(
+        bars=bars,
+        signal_idx=signal_idx,
+        symbol="000001",
+    )
+
+    assert isinstance(fig, go.Figure)
+    # 标题包含信号信息
+    title = fig.layout.title.text
+    assert "000001" in title
+    assert "买入" in title
+    assert "止损" in title
+    # 至少有蜡烛图 + 成交量 + 买入标注点 = 3 traces
+    assert len(fig.data) >= 3
+
+
+def test_plot_signal_chart_has_key_annotations():
+    """验证 plot_signal_chart 包含止损线、key_low线、R=2.5目标线。"""
+    import plotly.graph_objects as go
+
+    from sagent.chart import plot_signal_chart
+
+    bars = fixture_data().daily_bars("000001")
+    signal_idx = len(bars) - 1
+    entry_price = bars[signal_idx].close
+    key_low = entry_price * 0.90
+    stop_loss_price = entry_price * 0.95
+
+    fig = plot_signal_chart(
+        bars=bars,
+        signal_idx=signal_idx,
+        symbol="000001",
+        key_low=key_low,
+        stop_loss_price=stop_loss_price,
+        entry_price=entry_price,
+    )
+
+    assert isinstance(fig, go.Figure)
+
+    # 检查标题包含三根线
+    title = fig.layout.title.text
+    assert "止损" in title
+    assert "R=2.5" in title
+
+    # 检查 layout 中有水平线标注（hlines 通过 layout.shapes 或 annotations 实现）
+    # plotly add_hline 产生 annotations
+    layout_annotations = fig.layout.annotations or ()
+    annotation_texts = [a.text for a in layout_annotations if a.text]
+    ann_text_joined = " ".join(annotation_texts)
+    assert "止损" in ann_text_joined
+    assert "key_low" in ann_text_joined
+    assert "R=2.5" in ann_text_joined
+
+    # 检查趋势破坏参考线（传入高于 key_low 的值）
+    fig2 = plot_signal_chart(
+        bars=bars,
+        signal_idx=signal_idx,
+        symbol="000001",
+        key_low=key_low,
+        stop_loss_price=stop_loss_price,
+        trend_break_ref=entry_price * 0.92,  # 高于 key_low
+    )
+    layout_annotations2 = fig2.layout.annotations or ()
+    ann_texts2 = [a.text for a in layout_annotations2 if a.text]
+    ann_text2_joined = " ".join(ann_texts2)
+    assert "趋势破坏" in ann_text2_joined
+
+
+def test_plot_portfolio_dashboard_returns_figure():
+    """plot_portfolio_dashboard 返回 Figure，2x2 子图布局。"""
+    import plotly.graph_objects as go
+
+    from sagent.backtest_portfolio import DailyNAV, PortfolioStats
+    from sagent.chart import plot_portfolio_dashboard
+
+    # 构造带 nav_curve 的 PortfolioStats
+    nav = [
+        DailyNAV(
+            date="2026-01-10",
+            cash=90000,
+            position_value=10000,
+            total_value=100000,
+            open_positions=1,
+        ),
+        DailyNAV(
+            date="2026-01-20",
+            cash=90000,
+            position_value=11000,
+            total_value=101000,
+            open_positions=1,
+        ),
+        DailyNAV(
+            date="2026-01-31",
+            cash=90000,
+            position_value=12000,
+            total_value=102000,
+            open_positions=1,
+        ),
+        DailyNAV(
+            date="2026-02-10",
+            cash=90000,
+            position_value=10500,
+            total_value=100500,
+            open_positions=1,
+        ),
+        DailyNAV(
+            date="2026-02-28",
+            cash=90000,
+            position_value=11500,
+            total_value=101500,
+            open_positions=1,
+        ),
+    ]
+    stats = PortfolioStats(
+        initial_cash=100000,
+        final_value=101500,
+        total_return=0.015,
+        max_drawdown=0.015,
+        sharpe_ratio=0.5,
+        total_trades=3,
+        winning_trades=2,
+        losing_trades=1,
+        win_rate=0.6667,
+        avg_profit=0.08,
+        avg_loss=-0.05,
+        profit_loss_ratio=1.6,
+        max_single_profit=0.15,
+        max_single_loss=-0.05,
+        stop_loss_count=1,
+        take_profit_count=0,
+        natural_exit_count=2,
+        avg_holding_days=12.5,
+        capital_utilization=0.12,
+        nav_curve=nav,
+    )
+
+    fig = plot_portfolio_dashboard(stats)
+
+    # 返回 Figure
+    assert isinstance(fig, go.Figure)
+
+    # 标题
+    assert "组合级回测仪表盘" in fig.layout.title.text
+
+    # 2x2 子图 → 4 个 yaxis (yaxis, yaxis2, yaxis3, yaxis4)
+    assert fig.layout.yaxis is not None
+    assert fig.layout.yaxis2 is not None
+    assert fig.layout.yaxis3 is not None
+    assert fig.layout.yaxis4 is not None
+
+    # 至少有净值线和峰值线（2 个 trace 在 row 1 col 1）
+    trace_names = [t.name for t in fig.data if t.name]
+    assert "净值" in trace_names
+
+
+def test_plot_portfolio_dashboard_empty_nav():
+    """nav_curve 为空时返回空图表。"""
+    import plotly.graph_objects as go
+
+    from sagent.backtest_portfolio import PortfolioStats
+    from sagent.chart import plot_portfolio_dashboard
+
+    stats = PortfolioStats(
+        initial_cash=100000,
+        final_value=100000,
+        total_return=0.0,
+        max_drawdown=0.0,
+        sharpe_ratio=0.0,
+        total_trades=0,
+        winning_trades=0,
+        losing_trades=0,
+        win_rate=0.0,
+        avg_profit=0.0,
+        avg_loss=0.0,
+        profit_loss_ratio=0.0,
+        max_single_profit=0.0,
+        max_single_loss=0.0,
+        stop_loss_count=0,
+        take_profit_count=0,
+        natural_exit_count=0,
+        avg_holding_days=0.0,
+        capital_utilization=0.0,
+        nav_curve=[],
+    )
+
+    fig = plot_portfolio_dashboard(stats)
+    assert isinstance(fig, go.Figure)
+    assert "无数据" in fig.layout.title.text
+
+
+def test_find_swing_highs_basic():
+    """find_swing_highs 基本检测：单一尖峰。"""
+    from sagent.kline import find_swing_highs
+
+    # _make_bars(lows) → high = low + 1.0
+    # 要让索引5有尖峰 high=15，需要 low=14
+    # 其他 low=10 → high=11
+    lows = [10, 10, 10, 10, 10, 14, 10, 10, 10, 10, 10]
+    bars = _make_bars(lows, symbol="SH")
+    result = find_swing_highs(bars, left=5, right=3)
+    # 索引5 的 high=15 是唯一波峰
+    assert len(result) >= 1
+    idx, val = result[0]
+    assert idx == 5
+    assert val == 15.0
+
+
+def test_find_swing_highs_multiple():
+    """find_swing_highs 检测多个波峰。"""
+    from sagent.kline import find_swing_highs
+
+    # _make_bars(lows) → high = low + 1.0
+    # 两个尖峰: low=19 → high=20, low=14 → high=15
+    # left=4, right=2, 需要间隔 > left+right=6
+    # 索引5: high=20, 索引14: high=15
+    lows = [10] * 5 + [19] + [10] * 8 + [14] + [10] * 3
+    bars = _make_bars(lows, symbol="SM")
+    result = find_swing_highs(bars, left=4, right=2)
+    assert len(result) >= 2
+    # 第一个波峰在索引5
+    assert result[0][0] == 5
+    assert result[0][1] == 20.0
+    # 第二个波峰在索引14
+    assert result[1][0] == 14
+    assert result[1][1] == 15.0
+
+
+def test_find_swing_highs_no_swing():
+    """单调上升无 swing high。"""
+    from sagent.kline import find_swing_highs
+
+    # 单调上升 lows → 单调上升 highs
+    lows = list(range(20))
+    bars = _make_bars(lows, symbol="NS")
+    result = find_swing_highs(bars, left=3, right=3)
+    assert result == []
+
+
+def test_plot_structure_chart_returns_figure():
+    """plot_structure_chart 返回 Figure，包含 swing 标注和趋势线。"""
+    import plotly.graph_objects as go
+
+    from sagent.chart import plot_structure_chart
+
+    bars = fixture_data().daily_bars("000001")
+    signal_idx = len(bars) - 1
+
+    fig = plot_structure_chart(
+        bars=bars,
+        signal_idx=signal_idx,
+        symbol="000001",
+    )
+
+    assert isinstance(fig, go.Figure)
+    # 标题包含结构标注
+    title = fig.layout.title.text
+    assert "波峰波谷" in title
+
+    # 至少有蜡烛图 + 成交量 = 2 traces
+    assert len(fig.data) >= 2
+
+    # 检查是否有趋势破坏参考线（layout annotations）
+    layout_anns = fig.layout.annotations or ()
+    ann_texts = [a.text for a in layout_anns if a.text]
+    ann_joined = " ".join(ann_texts)
+    assert "趋势破坏" in ann_joined

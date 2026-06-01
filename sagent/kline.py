@@ -33,6 +33,34 @@ def find_swing_lows(
     return result
 
 
+def find_swing_highs(
+    bars: list[DailyBar], left: int = 5, right: int = 3
+) -> list[tuple[int, float]]:
+    """检测波峰（swing high）。
+
+    对称的 swing high 检测：某日 high 同时大于左侧 left 个和
+    右侧 right 个相邻日的 high，则该日为一个 swing high。
+
+    Returns:
+        [(索引, high值), ...] 按索引升序排列。
+    """
+    n = len(bars)
+    if n < left + right + 1:
+        return []
+    result: list[tuple[int, float]] = []
+    for i in range(left, n - right):
+        is_swing = True
+        for j in range(i - left, i + right + 1):
+            if j == i:
+                continue
+            if bars[i].high <= bars[j].high:
+                is_swing = False
+                break
+        if is_swing:
+            result.append((i, bars[i].high))
+    return result
+
+
 def find_key_low(
     bars: list[DailyBar], recent_high_idx: int | None = None
 ) -> tuple[float, str, int]:
