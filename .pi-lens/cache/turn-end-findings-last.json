@@ -1,6 +1,6 @@
 {
-  "signature": "docs/subagent-keylow-tests-result.md::ℹ️ Advisory — no action required this turn:\nCode-quality warnings introduced/touched this turn: 1 across 1 file(s).\nTop rules: pi-lens×1\nDetails written to .pi-lens/cache/code-quality-warnings.json\nNo action required unless you are already refactoring these areas.",
-  "sessionId": "lens-mpvac2av-bfd0accd",
-  "projectSeqStart": 209,
-  "projectSeqEnd": 210
+  "signature": "docs/subagent-backtest-engine-tests.md::ℹ️ Advisory — no action required this turn:\nCode-quality warnings introduced/touched this turn: 1 across 1 file(s).\nTop rules: pi-lens×1\nDetails written to .pi-lens/cache/code-quality-warnings.json\nNo action required unless you are already refactoring these areas.",
+  "sessionId": "lens-mpvaq2xe-353510d3",
+  "projectSeqStart": 219,
+  "projectSeqEnd": 220
 }

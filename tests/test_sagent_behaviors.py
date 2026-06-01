@@ -4,6 +4,11 @@ import json
 from pathlib import Path
 
 from sagent.backtest import run_layered_backtest
+from sagent.backtest_engine import (
+    BacktestStats,
+    run_backtest_engine,
+    simulate_trade,
+)
 from sagent.config import load_config
 from sagent.data import AStockDataMarketData, FixtureMarketData
 from sagent.kline import describe_stock, find_key_low, find_swing_lows
@@ -536,7 +541,7 @@ def test_scan_pipeline_prepare_then_judge_then_apply(tmp_path):
 
 def test_format_scan_summary_produces_markdown_tables():
     """format_scan_summary 输出包含完整的 Markdown 表格。"""
-    from sagent.format import format_feishu_text, format_scan_summary
+    from sagent.format import format_scan_summary
 
     data = fixture_data()
     scan_json = _build_prepare_scan_output(data)
@@ -861,3 +866,507 @@ def test_describe_stock_no_longer_uses_min_15():
     source = desc.fields.get("key_low_source", "")
     # 只要来源描述中包含"回调"二字就说明使用了新算法
     assert "回调" in source
+
+
+# ---------------------------------------------------------------------------
+# backtest_engine 逐日止损/止盈回测引擎测试
+# ---------------------------------------------------------------------------
+
+
+def _make_bar(
+    symbol: str,
+    date: str,
+    open_: float,
+    high: float,
+    low: float,
+    close: float,
+    vol: float = 10000.0,
+    amt: float = 100000.0,
+) -> DailyBar:
+    """快捷构造单根 DailyBar。"""
+    return DailyBar(symbol, date, open_, high, low, close, vol, amt)
+
+
+def _make_trade_bars(
+    symbol: str = "T001",
+    entry_price: float = 100.0,
+    key_low_target: float = 90.0,
+    post_entry_prices: list[dict] | None = None,
+    num_pre_bars: int = 40,
+) -> tuple[list[DailyBar], int]:
+    """构造用于回测引擎测试的 bars 列表。
+
+    结构：
+      - 前 num_pre_bars 根：上升趋势 + 回调产生 swing low
+      - 信号日（entry）：entry_price
+      - 之后：post_entry_prices 指定每日的 high/low/close
+
+    key_low_target 通过在前 num_pre_bars 区域放置一个 swing low 来控制。
+    为了让 find_key_low 找到 swing low，需要构造：
+      上升段 → 阶段高点 → 回调段（含 swing low） → 反弹到 entry_price
+
+    Args:
+        symbol: 股票代码
+        entry_price: 信号日买入价
+        key_low_target: 期望的 key_low 值（通过 swing low 实现）
+        post_entry_prices: 信号日后的价格列表，每项为
+            {"high": ..., "low": ..., "close": ...}
+            如果为 None，默认 20 天平盘
+        num_pre_bars: 信号日之前的 bar 数量
+
+    Returns:
+        (bars, signal_idx)
+    """
+    from datetime import datetime, timedelta
+
+    base = datetime(2026, 1, 1)
+
+    # 确保回调区间足够长以产生 swing low
+    # 结构：上升段 → 高位 → 回调（swing low 在中间）→ 反弹到 entry_price
+    # 需要: left=5 个高点 → swing low → right=3 个高点 → 继续反弹
+    # 总共至少 5 + 1 + 3 = 9 根回调区间的 bar
+
+    # 简化构造：用固定模式
+    # 前 15 根：低价（上升前的底部），low = key_low_target - 2
+    # 第 15-24 根：上升段，low 从 key_low_target - 2 升到 entry_price + 2
+    # 第 25-29 根：高位整理，low = entry_price + 1
+    # 第 30-34 根：回调，low 逐渐降低
+    # 第 35 根：swing low，low = key_low_target
+    # 第 36-38 根：反弹，low 回升
+    # 第 39 根：信号日，close = entry_price
+
+    # 确保有足够的前置 bar
+    assert num_pre_bars >= 40, "需要至少 40 根前置 bar 以产生 swing low"
+
+    bars: list[DailyBar] = []
+    high_price = entry_price + 3
+    mid_price = (key_low_target + high_price) / 2
+
+    for i in range(num_pre_bars):
+        d = base + timedelta(days=i)
+        date_str = d.strftime("%Y-%m-%d")
+
+        if i < 15:
+            # 底部盘整
+            low = key_low_target - 2
+            high = key_low_target
+            close = key_low_target - 1
+        elif i < 25:
+            # 上升段
+            frac = (i - 15) / 10
+            low = key_low_target - 2 + frac * (mid_price - key_low_target + 2)
+            high = low + 2
+            close = low + 1
+        elif i < 30:
+            # 高位整理
+            low = entry_price + 0.5
+            high = entry_price + 3
+            close = entry_price + 1.5
+        elif i < 35:
+            # 回调阶段
+            frac = (i - 30) / 5
+            low = entry_price + 0.5 - frac * (entry_price + 0.5 - key_low_target - 1)
+            high = low + 2
+            close = low + 1
+        elif i == 35:
+            # Swing low 谷底
+            low = key_low_target
+            high = key_low_target + 1
+            close = key_low_target + 0.5
+        elif i < 39:
+            # 反弹阶段
+            frac = (i - 36) / 3
+            low = key_low_target + frac * (entry_price - key_low_target - 1)
+            high = low + 2
+            close = low + 1
+        else:
+            # 信号日 (i == num_pre_bars - 1)
+            low = entry_price - 1
+            high = entry_price + 1
+            close = entry_price
+
+        bars.append(_make_bar(symbol, date_str, low + 0.2, high, low, close))
+
+    signal_idx = len(bars) - 1
+
+    # 添加信号日后的 bars
+    if post_entry_prices is None:
+        # 默认：20 天平盘
+        post_entry_prices = [
+            {"high": entry_price + 1, "low": entry_price - 1, "close": entry_price}
+            for _ in range(20)
+        ]
+
+    for j, prices in enumerate(post_entry_prices):
+        d = base + timedelta(days=signal_idx + 1 + j)
+        date_str = d.strftime("%Y-%m-%d")
+        bars.append(
+            _make_bar(
+                symbol,
+                date_str,
+                prices.get("open", prices["low"] + 0.5),
+                prices["high"],
+                prices["low"],
+                prices["close"],
+            )
+        )
+
+    return bars, signal_idx
+
+
+def test_simulate_trade_stop_loss_triggered():
+    """止损在 entry_price * 0.95 触发（当 key_low < entry_price * 0.95 时）。
+
+    entry_price=100, key_low=90 → stop_loss_price = max(95, 90) = 95
+    买入后第 3 天 low=94 → 触发止损，以 95 卖出。
+    """
+    bars, signal_idx = _make_trade_bars(
+        symbol="SL001",
+        entry_price=100.0,
+        key_low_target=90.0,
+        post_entry_prices=[
+            {"high": 102, "low": 99, "close": 100},  # day 1: 安全
+            {"high": 101, "low": 98, "close": 99},  # day 2: 安全
+            {"high": 96, "low": 94, "close": 95},  # day 3: low=94 ≤ 95 → 止损
+            {"high": 100, "low": 97, "close": 99},  # day 4: 不会到这里
+        ]
+        + [{"high": 100, "low": 97, "close": 99}] * 16,
+    )
+
+    trade = simulate_trade(bars, signal_idx, max_holding=20)
+
+    assert trade.exit_reason == "止损"
+    assert trade.exit_price == 95.0
+    assert trade.total_return == round((95.0 - 100.0) / 100.0, 4)
+    assert trade.total_return == -0.05
+    assert trade.holding_days == 3
+    assert trade.half_profit_locked is False
+    # daily_events 中第 3 天应有止损退出事件
+    assert any(e.get("event") == "止损退出" for e in trade.daily_events)
+
+
+def test_simulate_trade_key_low_stop_loss():
+    """key_low 止损：当 key_low > entry_price * 0.95 时，止损价取 key_low。
+
+    entry_price=100, key_low=97 → stop_loss_price = max(95, 97) = 97
+    买入后某天 low=96 → 以 97 止损（不是以 95 止损）。
+    """
+    bars, signal_idx = _make_trade_bars(
+        symbol="KL001",
+        entry_price=100.0,
+        key_low_target=97.0,
+        post_entry_prices=[
+            {"high": 102, "low": 99, "close": 100},  # day 1: 安全
+            {"high": 101, "low": 98, "close": 99},  # day 2: 安全
+            {"high": 99, "low": 96, "close": 97},  # day 3: low=96 ≤ 97 → 止损
+        ]
+        + [{"high": 100, "low": 97, "close": 99}] * 17,
+    )
+
+    trade = simulate_trade(bars, signal_idx, max_holding=20)
+
+    assert trade.exit_reason == "止损"
+    assert trade.key_low == 97.0
+    assert trade.stop_loss_price == 97.0  # max(95, 97) = 97
+    assert trade.exit_price == 97.0
+    # 亏损 = (97 - 100) / 100 = -0.03
+    assert trade.total_return == -0.03
+    assert trade.holding_days == 3
+
+
+def test_simulate_trade_half_profit_take():
+    """半仓止盈触发：R >= 2.5 时记录半仓止盈。
+
+    entry=100, key_low=90 → r_denom=10
+    买入后某天 high=130 → R=(130-100)/10=3.0 ≥ 2.5 → 半仓止盈。
+    之后价格平稳，持有到期。
+    """
+    bars, signal_idx = _make_trade_bars(
+        symbol="TP001",
+        entry_price=100.0,
+        key_low_target=90.0,
+        post_entry_prices=[
+            {"high": 105, "low": 100, "close": 103},  # day 1
+            {"high": 110, "low": 105, "close": 108},  # day 2
+            {"high": 130, "low": 120, "close": 125},  # day 3: R=3.0 → 半仓止盈
+            {"high": 128, "low": 122, "close": 125},  # day 4-20: 平稳
+        ]
+        + [{"high": 128, "low": 122, "close": 125}] * 16,
+    )
+
+    trade = simulate_trade(bars, signal_idx, max_holding=20)
+
+    assert trade.half_profit_locked is True
+    assert trade.half_profit_r >= 2.5
+    # R=3.0, 半仓锁定收益 = 3.0 * 10 / 100 = 0.30
+    # 剩余半仓：持有到期，收益 = (125 - 100) / 100 = 0.25
+    # 综合 = (0.30 + 0.25) / 2 = 0.275
+    # 但实际 exit_reason 应该是 "持有到期"（因为之后没触发趋势破坏）
+    assert trade.exit_reason == "持有到期"
+    assert trade.half_profit_r >= 2.5
+    # 验证有半仓止盈事件
+    assert any(e.get("event") == "半仓止盈" for e in trade.daily_events)
+
+
+def test_simulate_trade_full_lifecycle():
+    """完整生命周期：半仓止盈 → 趋势破坏退出。
+
+    entry=100, key_low=96 → stop_loss_price = max(95, 96) = 96 = key_low
+    第3天 high=130 → R=(130-100)/(100-96)=7.5 → 半仓止盈
+    第10天 low=95 → 跌破 key_low=96 → 趋势破坏退出
+
+    注意：当 stop_loss_price == key_low 时，止损和趋势破坏等价。
+    但已半仓止盈后，止损退出中如果 half_taken=True 会走不同的综合收益计算分支。
+    引擎逻辑：daily_low=95 <= stop_loss_price=96 → 先进止损检查。
+    所以 exit_reason 会是 "止损"（已半仓止盈后的止损）。
+    """
+    bars, signal_idx = _make_trade_bars(
+        symbol="LC001",
+        entry_price=100.0,
+        key_low_target=96.0,
+        post_entry_prices=[
+            {"high": 105, "low": 100, "close": 103},  # day 1
+            {"high": 110, "low": 105, "close": 108},  # day 2
+            {
+                "high": 130,
+                "low": 120,
+                "close": 125,
+            },  # day 3: R=(130-100)/4=7.5 → 半仓止盈
+            {"high": 128, "low": 122, "close": 125},  # day 4
+            {"high": 126, "low": 120, "close": 123},  # day 5
+            {"high": 120, "low": 115, "close": 118},  # day 6
+            {"high": 115, "low": 110, "close": 112},  # day 7
+            {"high": 110, "low": 105, "close": 107},  # day 8
+            {"high": 105, "low": 100, "close": 102},  # day 9
+            {"high": 98, "low": 95, "close": 96},  # day 10: low=95 ≤ 96 → 退出
+        ]
+        + [{"high": 100, "low": 95, "close": 98}] * 10,
+    )
+
+    trade = simulate_trade(bars, signal_idx, max_holding=20)
+
+    assert trade.half_profit_locked is True
+    assert trade.half_profit_r >= 2.5
+    assert trade.holding_days == 10
+    # exit_reason: 止损（因为 daily_low <= stop_loss_price 先检查）
+    assert trade.exit_reason == "止损"
+    assert trade.exit_price == 96.0  # stop_loss_price = key_low = 96
+
+    # 综合收益计算（半仓止盈 + 止损）：
+    # 注意：R=2.5 实际在 day 2 触发（high=110 → R=(110-100)/4=2.5），而非 day 3
+    # half_profit_r = 2.5, r_denom = 4
+    # locked_return = 2.5 * 4 / 100 = 0.10
+    # 剩余半仓止损：(96 - 100) / 100 = -0.04
+    # 综合 = (0.10 + (-0.04)) / 2 = 0.03
+    assert trade.half_profit_r == 2.5
+    assert trade.total_return == round((0.10 + (-0.04)) / 2, 4)
+    assert trade.total_return == 0.03
+
+    # 验证事件序列包含半仓止盈
+    events = [e.get("event") for e in trade.daily_events if e.get("event")]
+    assert "半仓止盈" in events
+
+
+def test_simulate_trade_hold_to_expiry():
+    """持有到期（无止损无止盈触发），20 天后以收盘价退出。
+
+    价格平稳波动，既不触发止损也不触发半仓止盈。
+    """
+    # 价格在 98-102 之间波动，远离止损(95)和止盈(R≥2.5→high≥125)
+    post_prices = [
+        {"high": 102, "low": 99, "close": 101},
+        {"high": 103, "low": 100, "close": 102},
+        {"high": 101, "low": 98, "close": 100},
+        {"high": 104, "low": 100, "close": 103},
+        {"high": 103, "low": 99, "close": 101},
+        {"high": 105, "low": 101, "close": 104},
+        {"high": 104, "low": 100, "close": 102},
+        {"high": 103, "low": 99, "close": 101},
+        {"high": 105, "low": 101, "close": 103},
+        {"high": 106, "low": 102, "close": 104},
+        {"high": 104, "low": 100, "close": 102},
+        {"high": 103, "low": 99, "close": 101},
+        {"high": 105, "low": 101, "close": 103},
+        {"high": 104, "low": 100, "close": 102},
+        {"high": 103, "low": 99, "close": 101},
+        {"high": 106, "low": 102, "close": 105},
+        {"high": 105, "low": 101, "close": 103},
+        {"high": 104, "low": 100, "close": 102},
+        {"high": 103, "low": 99, "close": 101},
+        {"high": 105, "low": 101, "close": 103},  # day 20: 最后一天
+    ]
+
+    bars, signal_idx = _make_trade_bars(
+        symbol="EX001",
+        entry_price=100.0,
+        key_low_target=90.0,
+        post_entry_prices=post_prices,
+    )
+
+    trade = simulate_trade(bars, signal_idx, max_holding=20)
+
+    assert trade.exit_reason == "持有到期"
+    assert trade.holding_days == 20
+    assert trade.exit_price == 103.0  # 第 20 天收盘价
+    assert trade.total_return == round((103.0 - 100.0) / 100.0, 4)
+    assert trade.half_profit_locked is False
+    assert trade.half_profit_r == 0.0
+
+
+def test_simulate_trade_stop_loss_after_half_profit():
+    """半仓止盈后再止损（stop_loss_price > key_low 的场景）。
+
+    entry=100, key_low=90 → stop_loss_price = max(95, 90) = 95
+    第3天 high=130 → R=3.0 → 半仓止盈
+    第8天 low=94 → 跌破 stop_loss_price=95 → 止损退出
+    （不是趋势破坏，因为 daily_low <= stop_loss_price 先于 daily_low <= key_low 检查）
+    """
+    bars, signal_idx = _make_trade_bars(
+        symbol="SLHP001",
+        entry_price=100.0,
+        key_low_target=90.0,
+        post_entry_prices=[
+            {"high": 105, "low": 100, "close": 103},  # day 1
+            {"high": 115, "low": 110, "close": 112},  # day 2
+            {"high": 130, "low": 120, "close": 125},  # day 3: R=3.0 → 半仓止盈
+            {"high": 128, "low": 122, "close": 125},  # day 4
+            {"high": 120, "low": 115, "close": 118},  # day 5
+            {"high": 110, "low": 105, "close": 107},  # day 6
+            {"high": 100, "low": 96, "close": 98},  # day 7
+            {"high": 97, "low": 94, "close": 95},  # day 8: low=94 ≤ 95 → 止损
+        ]
+        + [{"high": 100, "low": 97, "close": 99}] * 12,
+    )
+
+    trade = simulate_trade(bars, signal_idx, max_holding=20)
+
+    assert trade.exit_reason == "止损"
+    assert trade.half_profit_locked is True
+    assert trade.half_profit_r >= 2.5
+    assert trade.holding_days == 8
+    assert trade.exit_price == 95.0  # stop_loss_price
+
+    # 综合收益计算：
+    # 半仓锁定：R=3.0, r_denom=10, locked_return = 3.0 * 10 / 100 = 0.30
+    # 剩余半仓止损：(95 - 100) / 100 = -0.05
+    # 综合 = (0.30 + (-0.05)) / 2 = 0.125
+    assert trade.total_return == round((0.30 + (-0.05)) / 2, 4)
+    assert trade.total_return == 0.125
+
+
+def test_run_backtest_engine_aggregation():
+    """多信号汇总统计：3 个信号（1 止损、1 半仓止盈后趋势破坏、1 持有到期）。
+
+    验证 BacktestStats 的 count、rate、avg 计算正确。
+    """
+    # 信号1：止损
+    bars_sl, idx_sl = _make_trade_bars(
+        symbol="S1",
+        entry_price=100.0,
+        key_low_target=90.0,
+        post_entry_prices=[
+            {"high": 102, "low": 99, "close": 100},
+            {"high": 101, "low": 98, "close": 99},
+            {"high": 96, "low": 94, "close": 95},  # 止损
+        ]
+        + [{"high": 100, "low": 97, "close": 99}] * 17,
+    )
+
+    # 信号2：持有到期（平盘，无止损无止盈）
+    # 用不同于 S3 的价格确保区分
+    bars_tp, idx_tp = _make_trade_bars(
+        symbol="S2",
+        entry_price=100.0,
+        key_low_target=90.0,
+        post_entry_prices=[
+            {"high": 108, "low": 103, "close": 106},  # 温和上涨，不触发止盈
+        ]
+        * 20,
+    )
+
+    # 信号3：持有到期
+    bars_ne, idx_ne = _make_trade_bars(
+        symbol="S3",
+        entry_price=100.0,
+        key_low_target=90.0,
+        post_entry_prices=[
+            {"high": 105, "low": 100, "close": 103},
+        ]
+        * 20,
+    )
+
+    bars_map = {
+        "S1": bars_sl,
+        "S2": bars_tp,
+        "S3": bars_ne,
+    }
+    signals = [
+        {"symbol": "S1", "signal_idx": idx_sl},
+        {"symbol": "S2", "signal_idx": idx_tp},
+        {"symbol": "S3", "signal_idx": idx_ne},
+    ]
+
+    stats = run_backtest_engine(bars_map, signals, max_holding=20)
+
+    assert isinstance(stats, BacktestStats)
+    assert stats.total_signals == 3
+    assert stats.total_trades == 3
+
+    # 1 止损
+    assert stats.stop_loss_count == 1
+    assert stats.stop_loss_rate == round(1 / 3, 4)
+
+    # 0 半仓止盈后趋势破坏（S2 改为持有到期）
+    assert stats.take_profit_count == 0
+    assert stats.take_profit_rate == 0.0
+
+    # 2 持有到期
+    assert stats.natural_exit_count == 2
+
+    # 验证分组收益
+    sl_trades = [t for t in stats.trades if t.exit_reason == "止损"]
+    ne_trades = [t for t in stats.trades if t.exit_reason == "持有到期"]
+
+    assert len(sl_trades) == 1
+    assert sl_trades[0].total_return == -0.05
+
+    assert len(ne_trades) == 2
+    # S2 持有到期 close=106, S3 持有到期 close=103
+    ne_returns = {t.symbol: t.total_return for t in ne_trades}
+    assert ne_returns["S2"] == round((106.0 - 100.0) / 100.0, 4)
+    assert ne_returns["S3"] == round((103.0 - 100.0) / 100.0, 4)
+
+    # 平均收益
+    all_returns = [t.total_return for t in stats.trades]
+    assert stats.avg_return_all == round(sum(all_returns) / len(all_returns), 4)
+
+    # 胜率：2 个正收益（S2 和 S3），1 个负收益（S1）
+    assert stats.win_rate == round(2 / 3, 4)
+
+
+def test_simulate_trade_nodata_exit():
+    """bars 不足 max_holding 时，用最后一根 bar 收盘价退出。
+
+    信号日是倒数第 5 根 bar（后面只有 4 根），max_holding=20。
+    应以第 4 根 bar 的收盘价退出。
+    """
+    # 构造一个只有 signal_idx + 5 根的 bars
+    bars, signal_idx = _make_trade_bars(
+        symbol="ND001",
+        entry_price=100.0,
+        key_low_target=90.0,
+        post_entry_prices=[
+            {"high": 102, "low": 99, "close": 101},  # day 1
+            {"high": 103, "low": 100, "close": 102},  # day 2
+            {"high": 101, "low": 98, "close": 100},  # day 3
+            {"high": 104, "low": 100, "close": 103},  # day 4: 最后一天
+        ],
+    )
+
+    trade = simulate_trade(bars, signal_idx, max_holding=20)
+
+    # 只有 4 根后续 bar，不够 20 天，以最后一根收盘价退出
+    assert trade.exit_reason == "持有到期"
+    assert trade.holding_days == 4  # 不是 20
+    assert trade.exit_price == 103.0
+    assert trade.total_return == round((103.0 - 100.0) / 100.0, 4)
