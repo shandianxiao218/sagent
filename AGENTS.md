@@ -2,6 +2,13 @@
 
 本仓库的 agent 配置、issue 流程和领域文档规则如下。所有面向用户的沟通、文档和 issue 内容默认使用中文。
 
+## Git 工作流
+
+- 所有更改先在本地实现并验证（测试通过），再提交到 GitHub。
+- 每次提交前：`git pull origin master` → 本地改动 → 测试通过 → `git add` + `git commit` + `git push`。
+- 保证本地和远程始终同步，避免 stash 或未推送的积压。
+- 提交信息使用中文，格式：`feat: / fix: / docs: 描述`。
+
 ## Agent skills
 
 ### Issue tracker
