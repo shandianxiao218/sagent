@@ -41,6 +41,10 @@ class TradeLifecycle:
     half_profit_r: float = 0.0  # 半仓止盈时的R倍数
     max_r: float = 0.0  # 持仓期间最大盈亏比
 
+    # 止损类型追踪 (#26)
+    stop_loss_type: str = ""  # "硬性5%" | "key_low" | ""（未止损时为空）
+    stop_loss_distance_pct: float = 0.0  # 止损价距买入价的百分比距离（负数）
+
 
 @dataclass(frozen=True)
 class BacktestStats:
@@ -64,6 +68,15 @@ class BacktestStats:
     win_rate: float
 
     trades: list[TradeLifecycle]
+
+    # 止损类型分组统计 (#26)
+    hard_stop_loss_count: int = 0  # 硬性5%止损次数
+    key_low_stop_loss_count: int = 0  # key_low止损次数
+    hard_stop_loss_rate: float = 0.0  # 硬性止损率
+    key_low_stop_loss_rate: float = 0.0  # key_low止损率
+    avg_return_hard_stop_loss: float = 0.0  # 硬性止损组平均收益
+    avg_return_key_low_stop_loss: float = 0.0  # key_low止损组平均收益
+    oversized_stop_loss_count: int = 0  # 止损空间>8%的交易数
 
 
 def find_key_low_for_signal(bars: list[DailyBar], signal_idx: int) -> float:
@@ -195,6 +208,18 @@ def simulate_trade(
             daily_events[-1]["event"] = "持有到期退出"
             daily_events[-1]["exit_price"] = exit_price
 
+    # 判断止损类型 (#26)
+    hard_stop_threshold = round(entry_price * 0.95, 2)
+    if exit_reason == "止损":
+        if exit_price == hard_stop_threshold and hard_stop_threshold > key_low:
+            stop_loss_type = "硬性5%"
+        else:
+            stop_loss_type = "key_low"
+    else:
+        stop_loss_type = ""
+
+    stop_loss_distance_pct = round((stop_loss_price - entry_price) / entry_price, 4)
+
     return TradeLifecycle(
         symbol=symbol,
         signal_date=signal_date,
@@ -210,6 +235,8 @@ def simulate_trade(
         half_profit_locked=half_taken,
         half_profit_r=round(half_profit_r, 4),
         max_r=round(max_r, 4),
+        stop_loss_type=stop_loss_type,
+        stop_loss_distance_pct=stop_loss_distance_pct,
     )
 
 
@@ -282,6 +309,11 @@ def run_backtest_engine(
 
     win_count = sum(1 for r in all_returns if r > 0)
 
+    # 止损类型分组统计 (#26)
+    hard_sl = [t for t in trades if t.stop_loss_type == "硬性5%"]
+    key_low_sl = [t for t in trades if t.stop_loss_type == "key_low"]
+    oversized = [t for t in trades if t.stop_loss_distance_pct < -0.08]
+
     return BacktestStats(
         total_signals=total_signals,
         total_trades=total_trades,
@@ -297,4 +329,11 @@ def run_backtest_engine(
         avg_return_natural=safe_mean(nat_returns),
         win_rate=round(win_count / max(total_trades, 1), 4),
         trades=trades,
+        hard_stop_loss_count=len(hard_sl),
+        key_low_stop_loss_count=len(key_low_sl),
+        hard_stop_loss_rate=round(len(hard_sl) / max(total_trades, 1), 4),
+        key_low_stop_loss_rate=round(len(key_low_sl) / max(total_trades, 1), 4),
+        avg_return_hard_stop_loss=safe_mean([t.total_return for t in hard_sl]),
+        avg_return_key_low_stop_loss=safe_mean([t.total_return for t in key_low_sl]),
+        oversized_stop_loss_count=len(oversized),
     )
