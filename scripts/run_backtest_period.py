@@ -28,6 +28,27 @@ from sagent.kline import describe_stock
 from sagent.models import DailyBar
 from sagent.technical import _ma
 
+# ─── 行业归属获取（简化版 L6）─────────────────────────────────
+# 注意：回测中的 L6 是简化版，仅获取行业归属并做集中度统计，
+# 不执行完整的主线验证（需要实时板块成交额/涨幅/涨停扩散数据）。
+
+
+def get_stock_industry(symbol: str) -> str:
+    """获取股票所属申万行业（通过 AKShare 东方财富接口）。
+
+    网络获取可能失败，fallback 到 "未知"。
+    """
+    import akshare as ak
+
+    try:
+        df = ak.stock_individual_info_em(symbol=symbol)
+        for _, row in df.iterrows():
+            if row.get("item") == "行业":
+                return str(row.get("value", "未知"))
+    except Exception:
+        pass
+    return "未知"
+
 
 # ─── 数据获取 ─────────────────────────────────────────────────
 
@@ -241,9 +262,13 @@ def run_backtest(
     seed: int = 42,
     window_step: int = 3,
     min_forward: int = 20,
+    min_avg_amount: float = 100_000_000,
 ) -> dict:
     print(f"=== 定向时间区间回测: {start_date} ~ {end_date} ===", file=sys.stderr)
-    print(f"参数: 采样{sample_size}只, 步长{window_step}日", file=sys.stderr)
+    print(
+        f"参数: 采样{sample_size}只, 步长{window_step}日, 最低日均成交额{min_avg_amount / 1e8:.1f}亿",
+        file=sys.stderr,
+    )
 
     # 1. 获取股票列表
     print("\n[1/5] 获取A股列表...", file=sys.stderr)
@@ -263,6 +288,7 @@ def run_backtest(
     all_signals: list[dict] = []
     fetch_errors = 0
     short_bars = 0
+    low_amount_count = 0
 
     for i, stock in enumerate(sample):
         symbol = str(stock.get("code", ""))
@@ -282,6 +308,13 @@ def run_backtest(
 
         if len(bars) < 300:
             short_bars += 1
+            continue
+
+        # 成交额过滤：最近20日日均成交额低于阈值则跳过
+        recent_bars = bars[-20:]
+        avg_amount = mean(bar.amount for bar in recent_bars) if recent_bars else 0
+        if avg_amount < min_avg_amount:
+            low_amount_count += 1
             continue
 
         # 找到日期范围内的索引
@@ -335,14 +368,35 @@ def run_backtest(
                 }
             )
 
-    print(f"\n  完成: 错误{fetch_errors}, K线不足{short_bars}", file=sys.stderr)
+    print(
+        f"\n  完成: 错误{fetch_errors}, K线不足{short_bars}, 成交额不足{low_amount_count}",
+        file=sys.stderr,
+    )
     print(f"  总信号: {len(all_signals)}", file=sys.stderr)
 
     if not all_signals:
         return {"error": "未找到信号", "total_signals": 0}
 
-    # 3. 统计分析
-    print("\n[3/5] 统计分析...", file=sys.stderr)
+    # 3. 获取行业归属（简化版 L6）
+    print("\n[3/7] 获取行业归属（简化版 L6）...", file=sys.stderr)
+    unique_symbols = list({s["symbol"] for s in all_signals})
+    industry_cache: dict[str, str] = {}
+    for idx_us, sym in enumerate(unique_symbols):
+        if (idx_us + 1) % 20 == 0:
+            print(f"  行业查询: {idx_us + 1}/{len(unique_symbols)}", file=sys.stderr)
+        industry_cache[sym] = get_stock_industry(sym)
+    print(
+        f"  完成: {len(industry_cache)} 只股票, "
+        f"{sum(1 for v in industry_cache.values() if v == '未知')} 只未获取到行业",
+        file=sys.stderr,
+    )
+
+    # 将行业归属写入每个信号
+    for s in all_signals:
+        s["industry"] = industry_cache.get(s["symbol"], "未知")
+
+    # 4. 统计分析
+    print("\n[4/7] 统计分析...", file=sys.stderr)
 
     # 定义好/差信号
     def is_good(s):
@@ -361,7 +415,7 @@ def run_backtest(
     llm_observe = [s for s in has_fwd if s["llm_action"] == "观察"]
     llm_reject = [s for s in has_fwd if s["llm_action"] == "放弃"]
 
-    # 按月分组
+    # 按月分组（含板块维度）
     by_month: dict[str, dict] = {}
     monthly_signals = defaultdict(list)
     for s in has_fwd:
@@ -378,6 +432,13 @@ def run_backtest(
         wr_buy = round(sum(1 for v in r20_buy if v > 0) / max(len(r20_buy), 1), 4)
         sl_all = round(sum(1 for v in r20_all if v <= -0.05) / max(len(r20_all), 1), 4)
 
+        # 板块维度：该月按行业分组
+        month_sectors: dict[str, int] = defaultdict(int)
+        for s in group:
+            month_sectors[s.get("industry", "未知")] += 1
+        # 按数量降序取前 5
+        top_sectors = sorted(month_sectors.items(), key=lambda x: -x[1])[:5]
+
         by_month[month] = {
             "total": len(group),
             "quant_mean_20d": round(mean(r20_all), 4) if r20_all else None,
@@ -386,10 +447,76 @@ def run_backtest(
             "llm_buy_count": len(r20_buy),
             "llm_buy_mean_20d": round(mean(r20_buy), 4) if r20_buy else None,
             "llm_buy_win_rate": wr_buy,
+            "top_sectors": [{"sector": sec, "count": cnt} for sec, cnt in top_sectors],
         }
 
-    # 4. 混淆矩阵
-    print("\n[4/5] 混淆矩阵...", file=sys.stderr)
+    # 5. 板块分析（简化版 L6）
+    print("\n[5/7] 板块分析（简化版 L6）...", file=sys.stderr)
+    sector_groups: dict[str, list[dict]] = defaultdict(list)
+    for s in has_fwd:
+        sector_groups[s.get("industry", "未知")].append(s)
+
+    by_sector: dict[str, dict] = {}
+    for sector, group in sorted(sector_groups.items(), key=lambda x: -len(x[1])):
+        r20s = [s["forward"]["return_20d"] for s in group]
+        wins = [v for v in r20s if v > 0]
+        by_sector[sector] = {
+            "count": len(group),
+            "avg_return": round(mean(r20s), 4) if r20s else None,
+            "win_rate": round(len(wins) / len(r20s), 4) if r20s else None,
+            "symbols": list({s["symbol"] for s in group}),
+        }
+
+    suspected_mainlines = [
+        sector
+        for sector, info in by_sector.items()
+        if info["count"] >= 3 and sector != "未知"
+    ]
+
+    # 主线 vs 非主线对比
+    mainline_signals = []
+    non_mainline_signals = []
+    for s in has_fwd:
+        if s.get("industry") in suspected_mainlines:
+            mainline_signals.append(s)
+        else:
+            non_mainline_signals.append(s)
+
+    ml_r20 = [s["forward"]["return_20d"] for s in mainline_signals]
+    nml_r20 = [s["forward"]["return_20d"] for s in non_mainline_signals]
+    ml_llm_buy = [s for s in mainline_signals if s["llm_action"] == "买入"]
+    nml_llm_buy = [s for s in non_mainline_signals if s["llm_action"] == "买入"]
+
+    sector_analysis = {
+        "note": "简化版 L6（仅行业归属+集中度统计，不含实时板块成交额/涨幅/涨停扩散验证）",
+        "by_sector": by_sector,
+        "suspected_mainlines": suspected_mainlines,
+        "mainline_vs_non": {
+            "suspected_mainline": {
+                "count": len(mainline_signals),
+                "return_20d": desc(ml_r20),
+                "llm_buy_count": len(ml_llm_buy),
+                "llm_buy_mean_20d": round(
+                    mean([s["forward"]["return_20d"] for s in ml_llm_buy]), 4
+                )
+                if ml_llm_buy
+                else None,
+            },
+            "non_mainline": {
+                "count": len(non_mainline_signals),
+                "return_20d": desc(nml_r20),
+                "llm_buy_count": len(nml_llm_buy),
+                "llm_buy_mean_20d": round(
+                    mean([s["forward"]["return_20d"] for s in nml_llm_buy]), 4
+                )
+                if nml_llm_buy
+                else None,
+            },
+        },
+    }
+
+    # 6. 混淆矩阵
+    print("\n[6/7] 混淆矩阵...", file=sys.stderr)
 
     tp = len([s for s in llm_buy if is_good(s)])
     fp = len([s for s in llm_buy if not is_good(s)])
@@ -399,8 +526,8 @@ def run_backtest(
     actual_good = len([s for s in has_fwd if is_good(s)])
     actual_bad = len([s for s in has_fwd if is_bad(s)])
 
-    # 5. 组装
-    print("\n[5/5] 输出...", file=sys.stderr)
+    # 7. 组装
+    print("\n[7/7] 输出...", file=sys.stderr)
 
     r20_quant = [s["forward"]["return_20d"] for s in has_fwd]
     r20_llm_buy = [s["forward"]["return_20d"] for s in llm_buy]
@@ -447,6 +574,8 @@ def run_backtest(
                 "total_scanned": len(sample),
                 "fetch_errors": fetch_errors,
                 "short_bars": short_bars,
+                "low_amount_count": low_amount_count,
+                "min_avg_amount": min_avg_amount,
             },
         },
         "summary": {
@@ -493,6 +622,7 @@ def run_backtest(
         },
         "monthly_breakdown": by_month,
         "cumulative_curve": cum_curve,
+        "sector_analysis": sector_analysis,
         "sample_signals": {
             "top_winners": sorted(
                 has_fwd, key=lambda s: s["forward"].get("return_20d", 0), reverse=True
@@ -511,12 +641,19 @@ def main() -> None:
     parser.add_argument("--end", default="2026-05-31")
     parser.add_argument("--sample", type=int, default=1500)
     parser.add_argument("--output", default=None)
+    parser.add_argument(
+        "--min-amount",
+        type=float,
+        default=100_000_000,
+        help="最低日均成交额（元），默认1亿",
+    )
     args = parser.parse_args()
 
     result = run_backtest(
         start_date=args.start,
         end_date=args.end,
         sample_size=args.sample,
+        min_avg_amount=args.min_amount,
     )
 
     text = json.dumps(result, ensure_ascii=False, indent=2, default=str)
