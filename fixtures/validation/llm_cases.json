@@ -1,34 +1,215 @@
 {
+  "version": "2.0",
+  "description": "sagent LLM 验证案例集。用于验证 pi agent 的板块主线判断和个股形态判断质量。每个案例包含完整 K 线描述，供 LLM 做真实判断。",
+  "labels": {
+    "正例": "应该判断为买入的案例",
+    "反例": "应该判断为放弃的案例",
+    "边界": "应该判断为观察的案例"
+  },
   "cases": [
     {
-      "id": "2024-ai-application-mainline-breakout",
-      "name": "历史样例：AI 应用主线回调突破",
+      "id": "VP-001",
+      "name": "AI应用主线回调突破",
       "period": "2024-02 至 2024-03",
+      "category": "板块+个股",
       "human_label": "正例",
-      "sector_level": "强主线",
-      "description": "AI 应用板块成交额连续居前，阶段涨幅和涨停扩散明显；个股处于250日均线之上，第一波上涨有力，随后缩量回调，放量突破短期回调趋势，关键低点明确。",
+      "sector_info": {
+        "sector": "AI应用",
+        "level": "强主线",
+        "rules": {"turnover_top10_5d": true, "gain_top10_3x": true, "limit_up_breadth_3x": true},
+        "needs_llm": false
+      },
+      "kline_description": "002230 当前价格 35.20，位于 20 日均线 32.80 和 60 日均线 30.50 之上，长期上升趋势明确。前期形成明显主升浪，从阶段低点 18.50 涨至阶段高点 42.80，涨幅约 131%。随后回调至关键低点 28.30，回调幅度约为前波涨幅的 36%。近 3 日开始放量回升，突破短期回调趋势线，成交量放大至 10 日均量的 1.8 倍。突破需确认，关键低点定位为前同级别结构转折低点 28.30。止损参考位 26.80。",
       "expected_action": "买入",
-      "human_rationale": "主线、趋势、回调、突破、关键低点同时满足。"
+      "expected_key_low": 28.30,
+      "human_rationale": "主线、趋势、回调结构、突破信号、关键低点全部满足，盈亏比合理。"
     },
     {
-      "id": "2023-non-mainline-failed-rebound",
-      "name": "历史样例：非主线弱反弹失败",
+      "id": "VP-002",
+      "name": "非主线弱反弹失败",
       "period": "2023-08 至 2023-09",
+      "category": "板块+个股",
       "human_label": "反例",
-      "sector_level": "非主线",
-      "description": "长期均线下方，所属行业成交额排名靠后，涨停扩散不足；个股仅出现缩量反弹，无明确短期回调趋势突破。",
+      "sector_info": {
+        "sector": "纺织服装",
+        "level": "非主线",
+        "rules": {"turnover_top10_5d": false, "gain_top10_3x": false, "limit_up_breadth_3x": false},
+        "needs_llm": false
+      },
+      "kline_description": "600177 当前价格 7.80，低于 250 日均线 8.50，长期趋势偏弱。60 日内从低点 6.90 小幅反弹至 8.20，涨幅约 19%，无明显主升浪。近期从 8.20 回调至 7.60 后小幅回升，但未突破短期下降趋势，成交量持续萎缩。无明确关键低点结构。",
       "expected_action": "放弃",
-      "human_rationale": "不是市场主线，趋势结构也不满足。"
+      "expected_key_low": null,
+      "human_rationale": "非主线、趋势偏弱、无主升浪、回调结构不成立、无突破信号。"
     },
     {
-      "id": "2025-robotics-weak-mainline-borderline",
-      "name": "历史样例：机器人弱主线边界案例",
+      "id": "VP-003",
+      "name": "机器人弱主线边界案例",
       "period": "2025-01 至 2025-02",
+      "category": "板块+个股",
       "human_label": "边界",
-      "sector_level": "弱主线",
-      "description": "机器人板块成交额和涨幅阶段性靠前，但涨停扩散不足；个股处于上升趋势，回调接近关键低点，刚开始回升但突破不充分。",
+      "sector_info": {
+        "sector": "机器人",
+        "level": "弱主线",
+        "rules": {"turnover_top10_5d": true, "gain_top10_3x": true, "limit_up_breadth_3x": false},
+        "needs_llm": true
+      },
+      "kline_description": "300024 当前价格 22.50，位于 250 日均线 18.00 之上，处于上升趋势中。前期从低点 12.80 涨至 26.30，涨幅约 106%，形成主升浪。随后回调至 19.80，回调幅度约 40%。近 2 日开始回升但力度较弱，尚未突破短期回调趋势线（约 23.00 处），成交量略放大但不够明显。关键低点约 19.50-20.00 区间。",
       "expected_action": "观察",
-      "human_rationale": "板块和突破都需要继续确认。"
+      "expected_key_low": null,
+      "human_rationale": "板块为弱主线需LLM判断，个股突破不充分，需等待确认。"
+    },
+    {
+      "id": "VP-004",
+      "name": "半导体强主线深回调后V型反转",
+      "period": "2024-10 至 2024-12",
+      "category": "板块+个股",
+      "human_label": "正例",
+      "sector_info": {
+        "sector": "半导体",
+        "level": "强主线",
+        "rules": {"turnover_top10_5d": true, "gain_top10_3x": true, "limit_up_breadth_3x": true},
+        "needs_llm": false
+      },
+      "kline_description": "688981 当前价格 85.60，位于 250 日均线 62.00 之上，长期上升趋势明确。前期从低点 38.20 涨至 102.50，涨幅约 168%。随后快速回调至 65.30，回调幅度约为前波涨幅的 44%。近 5 日连续放量回升，已突破短期回调趋势线和 20 日均线，成交量放大至 10 日均量 2.2 倍。关键低点定位为同级别转折低点 62.80。止损参考位 60.00。",
+      "expected_action": "买入",
+      "expected_key_low": 62.80,
+      "human_rationale": "强主线、主升浪有力、回调结构健康、突破信号明确、关键低点清晰。"
+    },
+    {
+      "id": "VP-005",
+      "name": "非主线板块中的假突破",
+      "period": "2024-05 至 2024-06",
+      "category": "个股形态",
+      "human_label": "反例",
+      "sector_info": {
+        "sector": "建筑材料",
+        "level": "非主线",
+        "rules": {"turnover_top10_5d": false, "gain_top10_3x": false, "limit_up_breadth_3x": false},
+        "needs_llm": false
+      },
+      "kline_description": "601636 当前价格 12.80，勉强位于 250 日均线 12.50 之上。60 日内从低点 10.50 涨至 14.20，涨幅约 35%，未达到主升浪力度要求。近期从 14.20 回调至 12.20 后反弹，虽然突破短期下降趋势但量能不足，10 日均量仅 0.8 倍。属于下跌趋势中的反弹而非上升趋势中的回调。关键低点不明确。",
+      "expected_action": "放弃",
+      "expected_key_low": null,
+      "human_rationale": "非主线、涨幅不够、量能不足、可能是下跌中继反弹。"
+    },
+    {
+      "id": "VP-006",
+      "name": "新能源弱主线但个股突破明确",
+      "period": "2025-03 至 2025-04",
+      "category": "个股形态",
+      "human_label": "边界",
+      "sector_info": {
+        "sector": "新能源",
+        "level": "弱主线",
+        "rules": {"turnover_top10_5d": true, "gain_top10_3x": true, "limit_up_breadth_3x": false},
+        "needs_llm": true
+      },
+      "kline_description": "300750 当前价格 210.50，位于 250 日均线 175.00 之上，长期上升趋势。前期从低点 135.00 涨至 245.00，涨幅约 81%。随后回调至 185.00，回调幅度约 35%。近 4 日放量突破短期回调趋势线，成交量达 10 日均量 1.6 倍。关键低点 178.00。",
+      "expected_action": "观察",
+      "expected_key_low": 178.00,
+      "human_rationale": "个股形态好但板块弱主线需确认，可列入观察等待板块确认后买入。"
+    },
+    {
+      "id": "VP-007",
+      "name": "强主线但回调过深",
+      "period": "2024-07 至 2024-08",
+      "category": "个股形态",
+      "human_label": "反例",
+      "sector_info": {
+        "sector": "AI应用",
+        "level": "强主线",
+        "rules": {"turnover_top10_5d": true, "gain_top10_3x": true, "limit_up_breadth_3x": true},
+        "needs_llm": false
+      },
+      "kline_description": "688099 当前价格 38.50，位于 250 日均线 35.00 之上。前期从低点 18.00 涨至 62.00，涨幅约 244%。随后回调至 34.00，回调幅度约为前波涨幅的 70%，已超过 50% 的健康回调上限。虽然近 3 日开始反弹，但回调过深可能意味着趋势结构已经破坏。反弹力度较弱，未突破短期趋势线。",
+      "expected_action": "放弃",
+      "expected_key_low": null,
+      "human_rationale": "回调幅度 70% 超过健康区间，可能已破坏上升趋势结构。"
+    },
+    {
+      "id": "VP-008",
+      "name": "主线板块整理后缩量突破",
+      "period": "2025-04 至 2025-05",
+      "category": "板块+个股",
+      "human_label": "正例",
+      "sector_info": {
+        "sector": "军工",
+        "level": "强主线",
+        "rules": {"turnover_top10_5d": true, "gain_top10_3x": true, "limit_up_breadth_3x": true},
+        "needs_llm": false
+      },
+      "kline_description": "600760 当前价格 52.80，位于 250 日均线 42.00 之上，长期上升趋势明确。前期从低点 28.50 涨至 58.00，涨幅约 103%。随后经历约 20 个交易日的横盘整理，低点逐步抬高，从 58.00 回落至 48.50，回调幅度约 19%。近期在极度缩量后开始放量突破整理区间上沿，成交量从前日的 0.5 倍均量放大至 1.4 倍。关键低点 45.20。止损参考位 43.50。",
+      "expected_action": "买入",
+      "expected_key_low": 45.20,
+      "human_rationale": "强主线、主升浪有力、横盘整理代替深回调、缩量后放量突破。"
+    },
+    {
+      "id": "VP-009",
+      "name": "板块轮动退潮中的假信号",
+      "period": "2024-11 至 2024-12",
+      "category": "板块+个股",
+      "human_label": "反例",
+      "sector_info": {
+        "sector": "房地产",
+        "level": "非主线",
+        "rules": {"turnover_top10_5d": false, "gain_top10_3x": false, "limit_up_breadth_3x": false},
+        "needs_llm": false
+      },
+      "kline_description": "000002 当前价格 9.80，低于 250 日均线 10.50。60 日内从低点 7.80 涨至 11.20 后快速回落，涨幅约 44%。近期反弹突破 5 日均线但整体下降趋势未变，属于超跌反弹。板块成交额排名持续下滑，无资金持续流入迹象。",
+      "expected_action": "放弃",
+      "expected_key_low": null,
+      "human_rationale": "非主线、250日均线之下、超跌反弹非上升趋势回调。"
+    },
+    {
+      "id": "VP-010",
+      "name": "主线板块中涨幅不够的边缘股",
+      "period": "2025-02 至 2025-03",
+      "category": "个股形态",
+      "human_label": "边界",
+      "sector_info": {
+        "sector": "AI应用",
+        "level": "强主线",
+        "rules": {"turnover_top10_5d": true, "gain_top10_3x": true, "limit_up_breadth_3x": true},
+        "needs_llm": false
+      },
+      "kline_description": "300033 当前价格 16.80，位于 250 日均线 14.50 之上。60 日内从低点 13.20 涨至 18.50，涨幅约 40%，略低于 50% 的主升浪门槛。近期从 18.50 回调至 15.80 后开始回升，回调幅度约 42%。近 2 日放量回升但尚未明确突破短期回调趋势。关键低点约 14.00。",
+      "expected_action": "观察",
+      "expected_key_low": null,
+      "human_rationale": "涨幅 40% 接近但未达主升浪门槛，板块好但个股力度存疑。"
+    },
+    {
+      "id": "VP-011",
+      "name": "强主线龙头股强势突破",
+      "period": "2024-03 至 2024-04",
+      "category": "板块+个股",
+      "human_label": "正例",
+      "sector_info": {
+        "sector": "CPO",
+        "level": "强主线",
+        "rules": {"turnover_top10_5d": true, "gain_top10_3x": true, "limit_up_breadth_3x": true},
+        "needs_llm": false
+      },
+      "kline_description": "002281 当前价格 68.50，位于 250 日均线 45.00 之上，长期上升趋势明确。前期从低点 25.80 涨至 82.00，涨幅约 218%。随后回调至 55.00，回调幅度约 41%。近 3 日连续大阳线突破短期回调趋势，成交量持续放大至 10 日均量 2.5 倍。关键低点 50.20。止损参考位 48.00。板块内多只个股同步走强。",
+      "expected_action": "买入",
+      "expected_key_low": 50.20,
+      "human_rationale": "强主线龙头、主升浪非常有力、回调健康、突破量价配合完美。"
+    },
+    {
+      "id": "VP-012",
+      "name": "均线之下的反弹陷阱",
+      "period": "2023-10 至 2023-11",
+      "category": "个股形态",
+      "human_label": "反例",
+      "sector_info": {
+        "sector": "传媒",
+        "level": "非主线",
+        "rules": {"turnover_top10_5d": false, "gain_top10_3x": false, "limit_up_breadth_3x": false},
+        "needs_llm": false
+      },
+      "kline_description": "601801 当前价格 5.20，远低于 250 日均线 6.80。从高点 9.50 一路下跌，中间偶有反弹但每次都无法突破前高。近期从 4.60 反弹至 5.20，涨幅约 13%，成交量短暂放大后迅速萎缩。整体处于下降通道中，无上升趋势结构。",
+      "expected_action": "放弃",
+      "expected_key_low": null,
+      "human_rationale": "250日均线之下、下降趋势、无主升浪、仅是下跌中继反弹。"
     }
   ]
 }

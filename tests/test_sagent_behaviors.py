@@ -352,10 +352,24 @@ def test_historical_validation_cases_compare_llm_to_human_labels():
         Path("fixtures/validation/llm_cases.json"), model="GLM5.1"
     )
 
+    # 基本结构
     assert result["model"] == "GLM5.1"
-    assert result["total"] >= 3
-    assert {case["human_label"] for case in result["cases"]} >= {"正例", "反例", "边界"}
+    assert result["mode"] == "rule_engine"
+    assert result["total"] >= 10
+
+    # 包含三种标签
+    assert {"正例", "反例", "边界"} <= set(result["by_label"].keys())
+
+    # 每个案例有 match 字段
     assert all("match" in case for case in result["cases"])
+
+    # 汇总统计正确
+    assert result["correct"] <= result["total"]
+    assert 0 <= result["accuracy"] <= 1
+
+    # by_label 的 total 之和等于 total
+    label_sum = sum(v["total"] for v in result["by_label"].values())
+    assert label_sum == result["total"]
 
 
 def test_fallback_client_switches_on_quota_error():
