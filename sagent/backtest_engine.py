@@ -45,6 +45,11 @@ class TradeLifecycle:
     stop_loss_type: str = ""  # "硬性5%" | "key_low" | ""（未止损时为空）
     stop_loss_distance_pct: float = 0.0  # 止损价距买入价的百分比距离（负数）
 
+    # 全程持有对比 (#27)
+    buy_and_hold_return: float = (
+        0.0  # 全程持有收益（不考虑止损止盈，持有到 max_holding 天）
+    )
+
 
 @dataclass(frozen=True)
 class BacktestStats:
@@ -77,6 +82,18 @@ class BacktestStats:
     avg_return_hard_stop_loss: float = 0.0  # 硬性止损组平均收益
     avg_return_key_low_stop_loss: float = 0.0  # key_low止损组平均收益
     oversized_stop_loss_count: int = 0  # 止损空间>8%的交易数
+
+    # 半仓止盈统计 (#27)
+    half_profit_triggered_count: int = (
+        0  # 触发半仓止盈的交易数（含后续止损/趋势破坏/持有到期）
+    )
+    half_profit_triggered_rate: float = 0.0  # 触发率
+    avg_return_half_profit_triggered: float = 0.0  # 触发止盈的组平均收益
+    avg_return_half_profit_not_triggered: float = 0.0  # 未触发止盈的组平均收益
+
+    # 全程持有对比 (#27)
+    buy_and_hold_avg_return: float = 0.0  # 全程持有平均收益（所有信号）
+    strategy_vs_buyhold_diff: float = 0.0  # 止盈策略 vs 全程持有 收益差
 
 
 def find_key_low_for_signal(bars: list[DailyBar], signal_idx: int) -> float:
@@ -220,6 +237,10 @@ def simulate_trade(
 
     stop_loss_distance_pct = round((stop_loss_price - entry_price) / entry_price, 4)
 
+    # 全程持有收益 (#27)：不考虑止损止盈，持有到 max_holding 天
+    buy_and_hold_price = bars[end_idx].close
+    buy_and_hold_return = round((buy_and_hold_price - entry_price) / entry_price, 4)
+
     return TradeLifecycle(
         symbol=symbol,
         signal_date=signal_date,
@@ -237,6 +258,7 @@ def simulate_trade(
         max_r=round(max_r, 4),
         stop_loss_type=stop_loss_type,
         stop_loss_distance_pct=stop_loss_distance_pct,
+        buy_and_hold_return=buy_and_hold_return,
     )
 
 
@@ -314,6 +336,15 @@ def run_backtest_engine(
     key_low_sl = [t for t in trades if t.stop_loss_type == "key_low"]
     oversized = [t for t in trades if t.stop_loss_distance_pct < -0.08]
 
+    # 半仓止盈统计 (#27)
+    half_triggered = [t for t in trades if t.half_profit_locked]
+    half_not_triggered = [t for t in trades if not t.half_profit_locked]
+
+    # 全程持有对比 (#27)
+    buy_and_hold_returns = [t.buy_and_hold_return for t in trades]
+    buy_and_hold_avg = safe_mean(buy_and_hold_returns)
+    strategy_avg = safe_mean(all_returns)
+
     return BacktestStats(
         total_signals=total_signals,
         total_trades=total_trades,
@@ -336,4 +367,14 @@ def run_backtest_engine(
         avg_return_hard_stop_loss=safe_mean([t.total_return for t in hard_sl]),
         avg_return_key_low_stop_loss=safe_mean([t.total_return for t in key_low_sl]),
         oversized_stop_loss_count=len(oversized),
+        half_profit_triggered_count=len(half_triggered),
+        half_profit_triggered_rate=round(len(half_triggered) / max(total_trades, 1), 4),
+        avg_return_half_profit_triggered=safe_mean(
+            [t.total_return for t in half_triggered]
+        ),
+        avg_return_half_profit_not_triggered=safe_mean(
+            [t.total_return for t in half_not_triggered]
+        ),
+        buy_and_hold_avg_return=buy_and_hold_avg,
+        strategy_vs_buyhold_diff=round(strategy_avg - buy_and_hold_avg, 4),
     )

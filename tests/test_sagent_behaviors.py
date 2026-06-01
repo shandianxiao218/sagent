@@ -1552,3 +1552,210 @@ def test_oversized_stop_loss_warning():
     # 验证 distance 在合理范围
     for t in stats.trades:
         assert t.stop_loss_distance_pct >= -0.05
+
+
+# ---------------------------------------------------------------------------
+# #27 半仓止盈统计和策略对比测试
+# ---------------------------------------------------------------------------
+
+
+def test_half_profit_buy_and_hold_comparison():
+    """验证 buy_and_hold_return 字段存在，且与策略收益不同。
+
+    构造一个触发半仓止盈后又止损的场景：
+    entry=100, key_low=90 → stop_loss=95, r_denom=10
+    半仓止盈后止损 → 策略收益 ≠ 全程持有收益。
+    """
+    bars, signal_idx = _make_trade_bars(
+        symbol="BH001",
+        entry_price=100.0,
+        key_low_target=90.0,
+        post_entry_prices=[
+            {"high": 105, "low": 100, "close": 103},  # day 1
+            {"high": 115, "low": 110, "close": 112},  # day 2
+            {"high": 130, "low": 120, "close": 125},  # day 3: R=3.0 → 半仓止盈
+            {"high": 128, "low": 122, "close": 125},  # day 4
+            {"high": 120, "low": 115, "close": 118},  # day 5
+            {"high": 110, "low": 105, "close": 107},  # day 6
+            {"high": 100, "low": 96, "close": 98},  # day 7
+            {"high": 97, "low": 94, "close": 95},  # day 8: low=94 ≤ 95 → 止损
+        ]
+        + [{"high": 100, "low": 97, "close": 99}] * 12,
+    )
+
+    trade = simulate_trade(bars, signal_idx, max_holding=20)
+
+    # 策略触发半仓止盈后止损
+    assert trade.half_profit_locked is True
+    assert trade.exit_reason == "止损"
+    assert trade.total_return == 0.125  # 综合收益
+
+    # buy_and_hold_return 存在，且不等于策略收益
+    assert hasattr(trade, "buy_and_hold_return")
+    # 全程持有收益 = 第 20 天收盘价 vs 买入价
+    # bars 的最后一天收盘价是 99（填充的平盘数据）
+    assert trade.buy_and_hold_return != trade.total_return
+    # 全程持有收益应该是正或负，但不等于策略收益
+    assert trade.buy_and_hold_return == round((99.0 - 100.0) / 100.0, 4)  # -0.01
+
+
+def test_half_profit_stats_triggered_vs_not():
+    """验证 BacktestStats 半仓止盈分组统计。
+
+    3个信号：1个触发止盈、2个不触发。
+    """
+    # 信号1：触发半仓止盈后持有到期
+    bars1, idx1 = _make_trade_bars(
+        symbol="HP1",
+        entry_price=100.0,
+        key_low_target=90.0,
+        post_entry_prices=[
+            {"high": 105, "low": 100, "close": 103},
+            {"high": 130, "low": 120, "close": 125},  # R=3.0 → 半仓止盈
+        ]
+        + [{"high": 128, "low": 122, "close": 125}] * 18,
+    )
+
+    # 信号2：不触发止盈（平盘）
+    bars2, idx2 = _make_trade_bars(
+        symbol="HP2",
+        entry_price=100.0,
+        key_low_target=90.0,
+        post_entry_prices=[
+            {"high": 102, "low": 99, "close": 101},
+        ]
+        * 20,
+    )
+
+    # 信号3：不触发止盈（另一只平盘）
+    bars3, idx3 = _make_trade_bars(
+        symbol="HP3",
+        entry_price=100.0,
+        key_low_target=90.0,
+        post_entry_prices=[
+            {"high": 103, "low": 100, "close": 102},
+        ]
+        * 20,
+    )
+
+    bars_map = {"HP1": bars1, "HP2": bars2, "HP3": bars3}
+    signals = [
+        {"symbol": "HP1", "signal_idx": idx1},
+        {"symbol": "HP2", "signal_idx": idx2},
+        {"symbol": "HP3", "signal_idx": idx3},
+    ]
+
+    stats = run_backtest_engine(bars_map, signals, max_holding=20)
+
+    assert stats.half_profit_triggered_count == 1
+    assert stats.half_profit_triggered_rate == round(1 / 3, 4)
+    # 触发止盈的组平均收益应 > 未触发组
+    assert (
+        stats.avg_return_half_profit_triggered
+        > stats.avg_return_half_profit_not_triggered
+    )
+
+    # 全程持有对比字段存在
+    assert hasattr(stats, "buy_and_hold_avg_return")
+    assert hasattr(stats, "strategy_vs_buyhold_diff")
+
+
+def test_fuda_alloy_scenario():
+    """模拟福达合金场景：半仓止盈触发。
+
+    entry=31.64, key_low=28.0, r_denom=3.64
+    R=2.5 目标价 = 31.64 + 2.5*3.64 = 40.74
+    第5天 high=41 → R=(41-31.64)/3.64 ≈ 2.57 → 半仓止盈触发
+    之后涨到 73.4（第20天 close=73.4）→ 持有到期
+    """
+    bars, signal_idx = _make_trade_bars(
+        symbol="FD001",
+        entry_price=31.64,
+        key_low_target=28.0,
+        post_entry_prices=[
+            {"high": 33, "low": 31, "close": 32},  # day 1
+            {"high": 35, "low": 33, "close": 34},  # day 2
+            {"high": 37, "low": 35, "close": 36},  # day 3
+            {"high": 39, "low": 37, "close": 38},  # day 4
+            {"high": 41, "low": 39, "close": 40},  # day 5: R≈2.57 → 半仓止盈
+            {"high": 45, "low": 43, "close": 44},  # day 6
+            {"high": 50, "low": 48, "close": 49},  # day 7
+            {"high": 55, "low": 53, "close": 54},  # day 8
+            {"high": 60, "low": 58, "close": 59},  # day 9
+            {"high": 65, "low": 63, "close": 64},  # day 10
+            {"high": 70, "low": 68, "close": 69},  # day 11
+            {"high": 75, "low": 72, "close": 73},  # day 12
+            {"high": 78, "low": 75, "close": 76},  # day 13
+            {"high": 80, "low": 77, "close": 78},  # day 14
+            {"high": 82, "low": 79, "close": 80},  # day 15
+            {"high": 85, "low": 82, "close": 83},  # day 16
+            {"high": 87, "low": 84, "close": 85},  # day 17
+            {"high": 88, "low": 85, "close": 86},  # day 18
+            {"high": 90, "low": 87, "close": 88},  # day 19
+            {"high": 92, "low": 88, "close": 73.4},  # day 20: 持有到期
+        ],
+    )
+
+    trade = simulate_trade(bars, signal_idx, max_holding=20)
+
+    # 半仓止盈触发
+    assert trade.half_profit_locked is True
+    assert trade.half_profit_r >= 2.5
+
+    # 持有到期
+    assert trade.exit_reason == "持有到期"
+    assert trade.holding_days == 20
+
+    # 综合收益 > 0
+    assert trade.total_return > 0
+
+    # 全程持有收益 (close=73.4)
+    buy_hold = round((73.4 - 31.64) / 31.64, 4)
+    assert trade.buy_and_hold_return == buy_hold
+
+    # 策略收益 != 全程持有收益（半仓止盈锁定了部分收益）
+    assert trade.total_return != trade.buy_and_hold_return
+
+
+def test_gaole_stock_scenario():
+    """模拟高乐股份场景：半仓止盈触发。
+
+    entry=6.25, key_low=5.83, r_denom=0.42
+    R=2.5 目标价 = 6.25 + 2.5*0.42 = 7.30
+    某天 high=7.5 → R=(7.5-6.25)/0.42 ≈ 2.98 → 半仓止盈触发
+
+    注意：_make_trade_bars 的 key_low 可能与 target 略有偏差（因结构构造），
+    但只要 high 足够高以确保 R ≥ 2.5 即可。
+    实际 key_low=5.25, r_denom=1.0, 需要 high ≥ 6.25 + 2.5*1.0 = 8.75
+    """
+    bars, signal_idx = _make_trade_bars(
+        symbol="GL001",
+        entry_price=6.25,
+        key_low_target=5.83,
+        post_entry_prices=[
+            {"high": 6.5, "low": 6.1, "close": 6.3},  # day 1
+            {"high": 6.8, "low": 6.4, "close": 6.6},  # day 2
+            {"high": 7.0, "low": 6.7, "close": 6.9},  # day 3
+            {"high": 9.0, "low": 8.5, "close": 8.7},  # day 4: R ≥ 2.5 → 半仓止盈
+            {"high": 9.2, "low": 8.8, "close": 9.0},  # day 5
+            {"high": 9.5, "low": 9.0, "close": 9.2},  # day 6
+            {"high": 9.3, "low": 8.9, "close": 9.1},  # day 7
+            {"high": 9.1, "low": 8.7, "close": 8.9},  # day 8
+        ]
+        + [{"high": 9.0, "low": 8.6, "close": 8.8}] * 12,
+    )
+
+    trade = simulate_trade(bars, signal_idx, max_holding=20)
+
+    # 半仓止盈触发
+    assert trade.half_profit_locked is True
+    assert trade.half_profit_r >= 2.5
+
+    # 持有到期（未跌破 key_low）
+    assert trade.exit_reason == "持有到期"
+
+    # 综合收益 > 0
+    assert trade.total_return > 0
+
+    # 全程持有收益存在
+    assert trade.buy_and_hold_return > 0
