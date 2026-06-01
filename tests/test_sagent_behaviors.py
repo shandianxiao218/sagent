@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from sagent.backtest import run_quant_backtest
+from sagent.backtest import run_layered_backtest
 from sagent.config import load_config
 from sagent.data import AStockDataMarketData, FixtureMarketData
 from sagent.kline import describe_stock
@@ -321,13 +321,30 @@ def test_scan_orchestrates_holdings_candidates_actions_and_feishu_safe_skip(tmp_
 
 
 def test_quant_backtest_outputs_quality_statistics_not_full_strategy_returns():
-    report = run_quant_backtest(fixture_data(), start="2026-01-01", end="2026-05-31")
+    report = run_layered_backtest(fixture_data())
 
-    assert report["scope"] == "量化粗筛与主线验证，不包含 LLM 判断层"
-    assert report["candidate_count"] >= 1
-    assert "sector_distribution" in report
-    assert "threshold_notes" in report
+    # 免责声明
+    assert "不包含 LLM 判断层" in report["scope"]
+    assert "不等同于完整策略收益回测" in report["disclaimer"]
+
+    # 分层漏斗
+    layers = report["layers"]
+    assert layers["L1_stock_pool"]["passed"] >= 1
+    assert layers["L1_stock_pool"]["pass_rate"] > 0
+    assert layers["L5_breakout"]["passed"] >= 1
+    assert layers["L6_mainline"]["mainline"] >= 1
+
+    # Forward performance
     assert "forward_performance" in report
+    assert report["forward_performance"]["all"]["5d"]["count"] >= 0
+
+    # 阈值敏感度
+    assert "sensitivity" in report
+    assert "rise_60d" in report["sensitivity"]
+    assert "pullback_range" in report["sensitivity"]
+
+    # 板块分布
+    assert "sector_distribution" in report
 
 
 def test_historical_validation_cases_compare_llm_to_human_labels():
@@ -428,7 +445,9 @@ def test_prepare_scan_outputs_structured_data_without_llm_judgement():
     # 候选股必须有 K 线描述
     assert len(candidates) >= 1
     for candidate in candidates:
-        description = describe_stock(candidate.symbol, data.daily_bars(candidate.symbol))
+        description = describe_stock(
+            candidate.symbol, data.daily_bars(candidate.symbol)
+        )
         assert description.text
         assert description.key_low > 0
         assert "JSON" not in description.text  # K 线描述不含 LLM prompt
@@ -519,7 +538,11 @@ def test_format_scan_summary_produces_markdown_tables():
     assert "| ---" in md
 
     # 板块验证
-    assert "\u5f3a\u4e3b\u7ebf" in md or "\u5f31\u4e3b\u7ebf" in md or "\u975e\u4e3b\u7ebf" in md
+    assert (
+        "\u5f3a\u4e3b\u7ebf" in md
+        or "\u5f31\u4e3b\u7ebf" in md
+        or "\u975e\u4e3b\u7ebf" in md
+    )
 
     # 风险提示
     assert "\u4e0d\u6784\u6210\u6295\u8d44\u5efa\u8bae" in md
@@ -561,26 +584,32 @@ def _build_prepare_scan_output(data: FixtureMarketData) -> dict:
     for c in candidates:
         bars = data.daily_bars(c.symbol)
         desc = describe_stock(c.symbol, bars)
-        candidate_details.append({
-            **asdict(c),
-            "kline_description": desc.text,
-            "kline_key_low": desc.key_low,
-            "kline_risk_price": desc.risk_price,
-            "kline_fields": desc.fields,
-        })
+        candidate_details.append(
+            {
+                **asdict(c),
+                "kline_description": desc.text,
+                "kline_key_low": desc.key_low,
+                "kline_risk_price": desc.risk_price,
+                "kline_fields": desc.fields,
+            }
+        )
 
     validations = validate_mainline_sectors(summarize_sectors(data))
     sector_details = []
     for _name, v in validations.items():
-        sector_details.append({
-            "sector": v.sector,
-            "level": v.level,
-            "rules": v.rules,
-            "needs_llm": v.needs_llm,
-        })
+        sector_details.append(
+            {
+                "sector": v.sector,
+                "level": v.level,
+                "rules": v.rules,
+                "needs_llm": v.needs_llm,
+            }
+        )
 
     return {
-        "trade_date": data.trade_calendar()[-1].date if data.trade_calendar() else "\u672a\u77e5",
+        "trade_date": data.trade_calendar()[-1].date
+        if data.trade_calendar()
+        else "\u672a\u77e5",
         "judgement_model": config.models.default_judgement_model,
         "candidates": candidate_details,
         "sectors": sector_details,
