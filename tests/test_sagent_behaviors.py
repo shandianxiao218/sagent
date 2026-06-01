@@ -498,3 +498,100 @@ def test_scan_pipeline_prepare_then_judge_then_apply(tmp_path):
         candidate = result["candidates"][0]
         assert candidate["action"] in {"买入", "观察", "放弃"}
         assert candidate["key_low"] is not None
+
+
+def test_format_scan_summary_produces_markdown_tables():
+    """format_scan_summary 输出包含完整的 Markdown 表格。"""
+    from sagent.format import format_scan_summary, format_feishu_text
+
+    data = fixture_data()
+    scan_json = _build_prepare_scan_output(data)
+
+    md = format_scan_summary(scan_json)
+
+    # 标题
+    assert "\u626b\u63cf\u62a5\u544a" in md
+    assert "GLM5.1" in md
+
+    # 表格结构
+    assert "| \u677f\u5757" in md
+    assert "| \u80a1\u7968" in md
+    assert "| ---" in md
+
+    # 板块验证
+    assert "\u5f3a\u4e3b\u7ebf" in md or "\u5f31\u4e3b\u7ebf" in md or "\u975e\u4e3b\u7ebf" in md
+
+    # 风险提示
+    assert "\u4e0d\u6784\u6210\u6295\u8d44\u5efa\u8bae" in md
+
+
+def test_format_feishu_text_is_compact():
+    """飞书纯文本格式紧凑，无 Markdown 表格符号。"""
+    from sagent.format import format_feishu_text
+
+    data = fixture_data()
+    scan_json = _build_prepare_scan_output(data)
+
+    text = format_feishu_text(scan_json)
+
+    assert "[\u677f\u5757]" in text
+    assert "[\u5019\u9009]" in text
+    assert "\u4e0d\u6784\u6210\u6295\u8d44\u5efa\u8bae" in text
+    # 不含 Markdown 表格
+    assert "| ---" not in text
+
+
+def _build_prepare_scan_output(data: FixtureMarketData) -> dict:
+    """构造 prepare_scan 格式的输出，供格式化测试使用。"""
+    from dataclasses import asdict
+
+    from sagent.config import load_config
+    from sagent.kline import describe_stock
+    from sagent.portfolio import PortfolioStore
+    from sagent.sector import summarize_sectors, validate_mainline_sectors
+    from sagent.technical import filter_stock_pool, technical_candidates
+
+    config = load_config(Path("config/default.json"), env={})
+    portfolio = PortfolioStore(Path("portfolio.json")).load_or_create()
+
+    pool = filter_stock_pool(data.stocks())
+    candidates = technical_candidates(data, pool.included)
+
+    candidate_details = []
+    for c in candidates:
+        bars = data.daily_bars(c.symbol)
+        desc = describe_stock(c.symbol, bars)
+        candidate_details.append({
+            **asdict(c),
+            "kline_description": desc.text,
+            "kline_key_low": desc.key_low,
+            "kline_risk_price": desc.risk_price,
+            "kline_fields": desc.fields,
+        })
+
+    validations = validate_mainline_sectors(summarize_sectors(data))
+    sector_details = []
+    for _name, v in validations.items():
+        sector_details.append({
+            "sector": v.sector,
+            "level": v.level,
+            "rules": v.rules,
+            "needs_llm": v.needs_llm,
+        })
+
+    return {
+        "trade_date": data.trade_calendar()[-1].date if data.trade_calendar() else "\u672a\u77e5",
+        "judgement_model": config.models.default_judgement_model,
+        "candidates": candidate_details,
+        "sectors": sector_details,
+        "stock_pool": {
+            "included": [asdict(s) for s in pool.included],
+            "excluded": [asdict(e) for e in pool.excluded],
+        },
+        "portfolio": {
+            "positions": [asdict(p) for p in portfolio.positions],
+            "suggestions": [],
+            "cash": portfolio.cash,
+            "weekly_open_count": portfolio.weekly_open_count,
+        },
+    }
