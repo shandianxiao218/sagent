@@ -107,12 +107,19 @@ def describe_stock(
     volume_ratio = volumes[-1] / mean(volumes[-10:]) if mean(volumes[-10:]) else 0
     breakout = current >= max(closes[-8:])
     pullback_ratio = (recent_high - key_low) / recent_high if recent_high else 0
+    # 盈亏比计算
+    risk = current - key_low
+    r_ratio = (recent_high - current) / risk if risk > 0 else 0.0
+    target_2_5r = current + 2.5 * risk
+    target_3r = current + 3.0 * risk
+
     text = (
         f"{symbol} 当前价格 {current:.2f}，位于20日均线 {ma20:.2f} 和60日均线 {ma60:.2f} 附近；"
         f"趋势上，前期形成明显上升波段，近期从阶段高点 {recent_high:.2f} 回调至候选关键低点 {key_low:.2f}；"
         f"回调幅度约 {pullback_ratio:.1%}，近几日开始回升并{'尝试突破' if breakout else '尚未突破'}短期回调趋势；"
         f"成交量为近10日均量的 {volume_ratio:.2f} 倍，需关注突破是否放量确认；"
-        f"风险位置为买点前关键低点 {key_low:.2f}（{key_low_source}），跌破则形态无效。"
+        f"风险位置为买点前关键低点 {key_low:.2f}（{key_low_source}），跌破则形态无效；"
+        f"当前风险 {risk:.2f} 元，盈亏比 R=2.5 价位 {target_2_5r:.2f}、R=3 价位 {target_3r:.2f}，止损价 {key_low:.2f}。"
     )
     if len(text) > max_chars:
         text = text[: max_chars - 1] + "…"
@@ -130,5 +137,9 @@ def describe_stock(
             "key_low_source": key_low_source,
             "volume_ratio": round(volume_ratio, 2),
             "breakout": breakout,
+            "risk": round(risk, 2),
+            "r_ratio": round(r_ratio, 2),
+            "target_2_5r": round(target_2_5r, 2),
+            "target_3r": round(target_3r, 2),
         },
     )

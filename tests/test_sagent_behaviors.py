@@ -1759,3 +1759,174 @@ def test_gaole_stock_scenario():
 
     # 全程持有收益存在
     assert trade.buy_and_hold_return > 0
+
+
+# ---------------------------------------------------------------------------
+# #25 预期盈亏比计算与筛选测试
+# ---------------------------------------------------------------------------
+
+
+def test_describe_stock_includes_risk_reward_info():
+    """describe_stock 输出包含盈亏比 R 值、目标价和止损价信息。"""
+    # 使用 fixture 数据
+    data = fixture_data()
+    bars = data.daily_bars("000001")
+    desc = describe_stock("000001", bars)
+
+    # fields 中有盈亏比相关字段
+    assert "risk" in desc.fields
+    assert "r_ratio" in desc.fields
+    assert "target_2_5r" in desc.fields
+    assert "target_3r" in desc.fields
+
+    # risk = current - key_low，必须为正数
+    assert desc.fields["risk"] > 0
+
+    # target_2_5r = current + 2.5 * risk > current
+    assert desc.fields["target_2_5r"] > desc.fields["current"]
+    # target_3r = current + 3.0 * risk > target_2_5r
+    assert desc.fields["target_3r"] > desc.fields["target_2_5r"]
+
+    # 文本中包含盈亏比关键词
+    assert "R=2.5" in desc.text
+    assert "R=3" in desc.text
+    assert "止损价" in desc.text
+    assert len(desc.text) <= 900
+
+
+def test_candidate_includes_risk_reward_ratio():
+    """technical_candidates 输出的 Candidate 包含 risk_reward_ratio 字段。"""
+    stock = filter_stock_pool(fixture_data().stocks()).included[0]
+    candidates = technical_candidates(fixture_data(), [stock])
+
+    assert len(candidates) == 1
+    candidate = candidates[0]
+
+    # metrics 中有 risk_reward_ratio
+    assert "risk_reward_ratio" in candidate.metrics
+    assert candidate.metrics["risk_reward_ratio"] >= 0
+
+    # Candidate 本身也有 risk_reward_ratio 属性
+    assert candidate.risk_reward_ratio >= 0
+    assert candidate.risk_reward_ratio == candidate.metrics["risk_reward_ratio"]
+
+
+def test_risk_reward_ratio_calculation():
+    """验证盈亏比计算正确：risk/reward/R 值。"""
+    # 构造已知数据：
+    # current=100, pullback_low=90, high_60=120
+    # risk=10, reward=20, R=2.0
+    # 需要构造满足 L1-L5 条件的 bars
+    #
+    # 实际使用 _make_bars 构造，但 technical_candidates 需要 data: HasDailyBars
+    # 所以用 mock
+    from typing import Protocol
+
+    class MockData(Protocol):
+        def daily_bars(self, symbol: str) -> list[DailyBar]: ...
+
+    # 构造 260+ 根 bars，满足所有 L1-L5 条件
+    # current > ma250, rise_60d >= 0.5, pullback 0.15-0.5, recent_rebound + breakout
+    bars: list[DailyBar] = []
+    # 前 200 根：低价盘整（ma250 基准）
+    for i in range(200):
+        bars.append(
+            _make_bar(
+                "RR001",
+                f"2026-01-{(i % 30) + 1:02d}",
+                open_=50.0,
+                high=50.5,
+                low=49.5,
+                close=50.0,
+            )
+        )
+    # 第 200-239 根：从 50 涨到 120（满足 rise_60d >= 0.5）
+    for i in range(40):
+        price = 50.0 + (i / 39) * 70  # 50 → 120
+        bars.append(
+            _make_bar(
+                "RR001",
+                f"2026-02-{(i % 28) + 1:02d}",
+                open_=price - 0.5,
+                high=price + 0.5,
+                low=price - 1.0,
+                close=price,
+            )
+        )
+    # 第 240-249 根：从 120 回调到 100（pullback 区间）
+    for i in range(10):
+        price = 120.0 - (i / 9) * 20  # 120 → 100
+        bars.append(
+            _make_bar(
+                "RR001",
+                f"2026-03-{(i % 31) + 1:02d}",
+                open_=price - 0.5,
+                high=price + 0.5,
+                low=price - 1.0,
+                close=price,
+            )
+        )
+    # 最后 10 根：从 100 反弹（recent_rebound + breakout）
+    for i in range(10):
+        price = 100.0 + (i + 1) * 2  # 102, 104, ..., 120
+        bars.append(
+            _make_bar(
+                "RR001",
+                f"2026-04-{(i % 30) + 1:02d}",
+                open_=price - 0.5,
+                high=price + 0.5,
+                low=price - 1.0,
+                close=price,
+            )
+        )
+
+    # 最后一天 close = 120
+    assert bars[-1].close == 120.0
+
+    # pullback_low = min(closes[-30:]) = 100
+    # high_60 = max(closes[-60:]) = 120
+    # current = 120
+    # risk = 120 - 100 = 20
+    # reward = 120 - 120 = 0 → R = 0
+    # 这不对，需要调整：让 current 不等于 high_60
+
+    # 修改最后几根 bar，让 current < high_60
+    # 倒数第 3 根开始回调
+    bars[-3] = _make_bar("RR001", "2026-04-08", 117.0, 117.5, 116.0, 117.0)
+    bars[-2] = _make_bar("RR001", "2026-04-09", 116.0, 116.5, 115.0, 116.0)
+    bars[-1] = _make_bar("RR001", "2026-04-10", 115.0, 115.5, 114.0, 115.0)
+    # 但这会破坏 recent_rebound 条件 (closes[-1] > closes[-2] > closes[-3])
+
+    # 重新设计：让 recent_rebound 成立且 current < high_60
+    # bars[-3]=110, bars[-2]=112, bars[-1]=115 (recent_rebound=True)
+    bars[-3] = _make_bar("RR001", "2026-04-08", 109.0, 111.0, 108.0, 110.0)
+    bars[-2] = _make_bar("RR001", "2026-04-09", 111.0, 113.0, 110.0, 112.0)
+    bars[-1] = _make_bar("RR001", "2026-04-10", 113.0, 116.0, 112.0, 115.0)
+
+    # 现在 current=115, high_60=120, pullback_low=min(closes[-30:])
+    # 最近 30 日内最低 close 在回调阶段，约为 100
+    # risk = 115 - 100 = 15, reward = 120 - 115 = 5
+    # R = 5/15 ≈ 0.33
+
+    # 但 breakout 需要成立：closes[-1] > max(closes[-8:-1])
+    # 直接计算验证 describe_stock 的字段值
+    desc = describe_stock("RR001", bars)
+
+    # 验证盈亏比计算逻辑
+    risk = desc.fields["current"] - desc.fields["key_low"]
+    assert desc.fields["risk"] == round(risk, 2)
+
+    expected_2_5r = desc.fields["current"] + 2.5 * risk
+    expected_3r = desc.fields["current"] + 3.0 * risk
+    assert desc.fields["target_2_5r"] == round(expected_2_5r, 2)
+    assert desc.fields["target_3r"] == round(expected_3r, 2)
+
+    # target_3r > target_2_5r > current
+    assert desc.fields["target_3r"] > desc.fields["target_2_5r"]
+    assert desc.fields["target_2_5r"] > desc.fields["current"]
+
+    # r_ratio = (recent_high - current) / risk
+    expected_r = (
+        (desc.fields["recent_high"] - desc.fields["current"]) / risk if risk > 0 else 0
+    )
+    assert desc.fields["r_ratio"] == round(expected_r, 2)

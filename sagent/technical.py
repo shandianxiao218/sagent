@@ -64,6 +64,13 @@ def technical_candidates(
             "recent_rebound": recent_rebound,
             "breakout": breakout,
         }
+        # 盈亏比估算：用回调区间最低价近似 key_low
+        pullback_low = min(closes[-30:])
+        risk = current - pullback_low
+        reward = high_60 - current
+        risk_reward = reward / risk if risk > 0 else 0.0
+        metrics["risk_reward_ratio"] = round(risk_reward, 2)
+
         reasons: list[str] = []
         if current > ma250:
             reasons.append("价格位于250日均线之上")
@@ -75,6 +82,13 @@ def technical_candidates(
             reasons.append("突破短期回调趋势")
         if len(reasons) == 4:
             candidates.append(
-                Candidate(stock.symbol, stock.name, stock.sector, metrics, reasons)
+                Candidate(
+                    stock.symbol,
+                    stock.name,
+                    stock.sector,
+                    metrics,
+                    reasons,
+                    risk_reward_ratio=round(risk_reward, 2),
+                )
             )
     return candidates

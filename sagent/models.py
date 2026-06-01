@@ -63,6 +63,7 @@ class Candidate:
     sector: str
     metrics: dict[str, Any]
     reasons: list[str]
+    risk_reward_ratio: float = 0.0
 
 
 @dataclass(frozen=True)
