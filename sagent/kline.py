@@ -5,6 +5,93 @@ from statistics import mean
 from .models import DailyBar, KlineDescription
 
 
+def find_swing_lows(
+    bars: list[DailyBar], left: int = 5, right: int = 3
+) -> list[tuple[int, float]]:
+    """检测利弗摩尔结构转折低点（swing low）。
+
+    某日 low 同时小于左侧 left 个和右侧 right 个相邻日的 low，
+    则该日为一个 swing low。
+
+    Returns:
+        [(索引, low值), ...] 按索引升序排列。
+    """
+    n = len(bars)
+    if n < left + right + 1:
+        return []
+    result: list[tuple[int, float]] = []
+    for i in range(left, n - right):
+        is_swing = True
+        for j in range(i - left, i + right + 1):
+            if j == i:
+                continue
+            if bars[i].low >= bars[j].low:
+                is_swing = False
+                break
+        if is_swing:
+            result.append((i, bars[i].low))
+    return result
+
+
+def find_key_low(
+    bars: list[DailyBar], recent_high_idx: int | None = None
+) -> tuple[float, str, int]:
+    """在回调区间中找到关键结构转折低点。
+
+    1. 确定回调区间：从阶段高点（recent_high_idx）到 bars 末尾。
+    2. 在回调区间内找所有 swing lows。
+    3. 取最后一个 swing low 作为 key_low。
+    4. 回退保障：找不到 swing low 时取回调区间最低价。
+
+    Args:
+        bars: 日K线数据。
+        recent_high_idx: 阶段高点在 bars 中的索引。若为 None，
+            取最近30日收盘最高日作为阶段高点。
+
+    Returns:
+        (key_low值, 来源描述, 日期索引)
+    """
+    n = len(bars)
+    if n < 2:
+        return bars[-1].low, "数据不足，取最后一日低价", n - 1
+
+    # 确定回调区间起点（阶段高点的索引）
+    if recent_high_idx is None:
+        closes = [bar.close for bar in bars[-30:]]
+        recent_high = max(closes)
+        # 在最近30日中找到最高收盘价对应的索引（取最后一个）
+        # closes[::-1].index(recent_high) 是从末尾数的位置，
+        # 转换回正向索引：len(closes) - 1 - rev_idx
+        rev_idx = closes[::-1].index(recent_high)
+        recent_high_idx = n - 30 + (len(closes) - 1 - rev_idx)
+
+    start = max(0, recent_high_idx)
+    end = n  # 不含
+
+    if start >= end - 1:
+        return bars[-1].low, "回调区间过短，取最后一日低价", n - 1
+
+    pullback_bars = bars[start:end]
+    # 将 swing low 索引映射回原始 bars 的索引
+    swing_lows = find_swing_lows(pullback_bars)
+    global_swings = [(start + idx, low) for idx, low in swing_lows]
+
+    if global_swings:
+        idx, low = global_swings[-1]
+        date_str = bars[idx].date
+        return low, f"{date_str}的回调结构转折低点", idx
+
+    # 回退：回调区间内的最低价
+    min_idx = start
+    min_low = pullback_bars[0].low
+    for i, bar in enumerate(pullback_bars):
+        if bar.low < min_low:
+            min_low = bar.low
+            min_idx = start + i
+    date_str = bars[min_idx].date
+    return min_low, f"{date_str}的回调区间最低价（无明确转折点）", min_idx
+
+
 def describe_stock(
     symbol: str, bars: list[DailyBar], max_chars: int = 900
 ) -> KlineDescription:
@@ -16,7 +103,7 @@ def describe_stock(
     ma20 = mean(closes[-20:])
     ma60 = mean(closes[-60:]) if len(closes) >= 60 else mean(closes)
     recent_high = max(closes[-30:])
-    key_low = min(bar.low for bar in bars[-15:])
+    key_low, key_low_source, _key_low_idx = find_key_low(bars)
     volume_ratio = volumes[-1] / mean(volumes[-10:]) if mean(volumes[-10:]) else 0
     breakout = current >= max(closes[-8:])
     pullback_ratio = (recent_high - key_low) / recent_high if recent_high else 0
@@ -25,7 +112,7 @@ def describe_stock(
         f"趋势上，前期形成明显上升波段，近期从阶段高点 {recent_high:.2f} 回调至候选关键低点 {key_low:.2f}；"
         f"回调幅度约 {pullback_ratio:.1%}，近几日开始回升并{'尝试突破' if breakout else '尚未突破'}短期回调趋势；"
         f"成交量为近10日均量的 {volume_ratio:.2f} 倍，需关注突破是否放量确认；"
-        f"风险位置为买点前关键低点 {key_low:.2f}，跌破则形态无效。"
+        f"风险位置为买点前关键低点 {key_low:.2f}（{key_low_source}），跌破则形态无效。"
     )
     if len(text) > max_chars:
         text = text[: max_chars - 1] + "…"
@@ -40,6 +127,7 @@ def describe_stock(
             "ma60": round(ma60, 2),
             "recent_high": recent_high,
             "key_low": round(key_low, 2),
+            "key_low_source": key_low_source,
             "volume_ratio": round(volume_ratio, 2),
             "breakout": breakout,
         },

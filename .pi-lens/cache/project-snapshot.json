@@ -1,0 +1,377 @@
+{
+  "version": 1,
+  "projectRoot": "D:/suishi/sagent",
+  "generatedAt": "2026-06-01T14:12:39.365Z",
+  "seq": 192,
+  "files": {
+    "D:/suishi/sagent/close_issues.py": {
+      "path": "D:/suishi/sagent/close_issues.py",
+      "mtimeMs": 1780236645438.5425,
+      "size": 14049,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/sagent/__init__.py": {
+      "path": "D:/suishi/sagent/sagent/__init__.py",
+      "mtimeMs": 1780233314279.6736,
+      "size": 49,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/sagent/backtest.py": {
+      "path": "D:/suishi/sagent/sagent/backtest.py",
+      "mtimeMs": 1780235276093.8242,
+      "size": 1638,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/sagent/config.py": {
+      "path": "D:/suishi/sagent/sagent/config.py",
+      "mtimeMs": 1780233616650.0974,
+      "size": 2561,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/sagent/data.py": {
+      "path": "D:/suishi/sagent/sagent/data.py",
+      "mtimeMs": 1780237373370.8376,
+      "size": 6796,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/sagent/format.py": {
+      "path": "D:/suishi/sagent/sagent/format.py",
+      "mtimeMs": 1780273134414.779,
+      "size": 9406,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/sagent/kline.py": {
+      "path": "D:/suishi/sagent/sagent/kline.py",
+      "mtimeMs": 1780234663101.7593,
+      "size": 1949,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/sagent/llm.py": {
+      "path": "D:/suishi/sagent/sagent/llm.py",
+      "mtimeMs": 1780272656064.2817,
+      "size": 7467,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/sagent/models.py": {
+      "path": "D:/suishi/sagent/sagent/models.py",
+      "mtimeMs": 1780235227945.6921,
+      "size": 3019,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/sagent/notify.py": {
+      "path": "D:/suishi/sagent/sagent/notify.py",
+      "mtimeMs": 1780233700303.581,
+      "size": 533,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/sagent/portfolio.py": {
+      "path": "D:/suishi/sagent/sagent/portfolio.py",
+      "mtimeMs": 1780240164675.7466,
+      "size": 5264,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/sagent/scan.py": {
+      "path": "D:/suishi/sagent/sagent/scan.py",
+      "mtimeMs": 1780272656064.2817,
+      "size": 4336,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/sagent/sector.py": {
+      "path": "D:/suishi/sagent/sagent/sector.py",
+      "mtimeMs": 1780235276076.5723,
+      "size": 3020,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/sagent/technical.py": {
+      "path": "D:/suishi/sagent/sagent/technical.py",
+      "mtimeMs": 1780234676990.2898,
+      "size": 2741,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/sagent/validation.py": {
+      "path": "D:/suishi/sagent/sagent/validation.py",
+      "mtimeMs": 1780233904093.2986,
+      "size": 964,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/scripts/analyze_stock.py": {
+      "path": "D:/suishi/sagent/scripts/analyze_stock.py",
+      "mtimeMs": 1780234316217.434,
+      "size": 2118,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/scripts/apply_decision.py": {
+      "path": "D:/suishi/sagent/scripts/apply_decision.py",
+      "mtimeMs": 1780240093469.819,
+      "size": 5020,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/scripts/market_scan.py": {
+      "path": "D:/suishi/sagent/scripts/market_scan.py",
+      "mtimeMs": 1780234263630.631,
+      "size": 2255,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/scripts/notify_feishu.py": {
+      "path": "D:/suishi/sagent/scripts/notify_feishu.py",
+      "mtimeMs": 1780232562466.006,
+      "size": 3355,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/scripts/portfolio.py": {
+      "path": "D:/suishi/sagent/scripts/portfolio.py",
+      "mtimeMs": 1780234316237.888,
+      "size": 2560,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/scripts/prepare_scan.py": {
+      "path": "D:/suishi/sagent/scripts/prepare_scan.py",
+      "mtimeMs": 1780240093463.6887,
+      "size": 4726,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/tests/test_sagent_behaviors.py": {
+      "path": "D:/suishi/sagent/tests/test_sagent_behaviors.py",
+      "mtimeMs": 1780272656065.2842,
+      "size": 17572,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/tmp_show_scan.py": {
+      "path": "D:/suishi/sagent/tmp_show_scan.py",
+      "mtimeMs": 1780273066408.1,
+      "size": 824,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/tmp_test_format.py": {
+      "path": "D:/suishi/sagent/tmp_test_format.py",
+      "mtimeMs": 1780273143363.8713,
+      "size": 490,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/scripts/format_report.py": {
+      "path": "D:/suishi/sagent/scripts/format_report.py",
+      "mtimeMs": 1780273184055.9204,
+      "size": 1354,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/scripts/find_real_cases.py": {
+      "path": "D:/suishi/sagent/scripts/find_real_cases.py",
+      "mtimeMs": 1780274695685.788,
+      "size": 8794,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/tmp_show_cases.py": {
+      "path": "D:/suishi/sagent/tmp_show_cases.py",
+      "mtimeMs": 1780274911771.0356,
+      "size": 653,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/tmp_write_cases.py": {
+      "path": "D:/suishi/sagent/tmp_write_cases.py",
+      "mtimeMs": 1780274942481.855,
+      "size": 1560,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/tmp_vr001_detail.py": {
+      "path": "D:/suishi/sagent/tmp_vr001_detail.py",
+      "mtimeMs": 1780275301790.4475,
+      "size": 8137,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/scripts/run_backtest.py": {
+      "path": "D:/suishi/sagent/scripts/run_backtest.py",
+      "mtimeMs": 1780288873722.3462,
+      "size": 15780,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/scripts/prepare_llm_judge.py": {
+      "path": "D:/suishi/sagent/scripts/prepare_llm_judge.py",
+      "mtimeMs": 1780317503683.1228,
+      "size": 5261,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/scripts/analyze_llm_judge.py": {
+      "path": "D:/suishi/sagent/scripts/analyze_llm_judge.py",
+      "mtimeMs": 1780317665401.4558,
+      "size": 10571,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/scripts/run_backtest_period.py": {
+      "path": "D:/suishi/sagent/scripts/run_backtest_period.py",
+      "mtimeMs": 1780318422768.598,
+      "size": 18198,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/_test_debug.py": {
+      "path": "D:/suishi/sagent/_test_debug.py",
+      "mtimeMs": 1780322543166.9612,
+      "size": 1259,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/_test_debug2.py": {
+      "path": "D:/suishi/sagent/_test_debug2.py",
+      "mtimeMs": 1780322571629.9807,
+      "size": 817,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/_test_debug3.py": {
+      "path": "D:/suishi/sagent/_test_debug3.py",
+      "mtimeMs": 1780322676056.0652,
+      "size": 1522,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/_test_validate.py": {
+      "path": "D:/suishi/sagent/_test_validate.py",
+      "mtimeMs": 1780322750599.4604,
+      "size": 4048,
+      "imports": [],
+      "lastSeq": 0
+    }
+  },
+  "symbols": {},
+  "reverseDeps": {
+    "D:/suishi/sagent/close_issues.py": [],
+    "D:/suishi/sagent/sagent/__init__.py": [],
+    "D:/suishi/sagent/sagent/backtest.py": [],
+    "D:/suishi/sagent/sagent/config.py": [],
+    "D:/suishi/sagent/sagent/data.py": [],
+    "D:/suishi/sagent/sagent/format.py": [],
+    "D:/suishi/sagent/sagent/kline.py": [],
+    "D:/suishi/sagent/sagent/llm.py": [],
+    "D:/suishi/sagent/sagent/models.py": [],
+    "D:/suishi/sagent/sagent/notify.py": [],
+    "D:/suishi/sagent/sagent/portfolio.py": [],
+    "D:/suishi/sagent/sagent/scan.py": [],
+    "D:/suishi/sagent/sagent/sector.py": [],
+    "D:/suishi/sagent/sagent/technical.py": [],
+    "D:/suishi/sagent/sagent/validation.py": [],
+    "D:/suishi/sagent/scripts/analyze_llm_judge.py": [],
+    "D:/suishi/sagent/scripts/analyze_stock.py": [],
+    "D:/suishi/sagent/scripts/apply_decision.py": [],
+    "D:/suishi/sagent/scripts/find_real_cases.py": [],
+    "D:/suishi/sagent/scripts/format_report.py": [],
+    "D:/suishi/sagent/scripts/market_scan.py": [],
+    "D:/suishi/sagent/scripts/notify_feishu.py": [],
+    "D:/suishi/sagent/scripts/portfolio.py": [],
+    "D:/suishi/sagent/scripts/prepare_llm_judge.py": [],
+    "D:/suishi/sagent/scripts/prepare_scan.py": [],
+    "D:/suishi/sagent/scripts/run_backtest_period.py": [],
+    "D:/suishi/sagent/scripts/run_backtest.py": [],
+    "D:/suishi/sagent/tests/test_sagent_behaviors.py": []
+  },
+  "cachedExports": [],
+  "projectRulesScan": {
+    "rules": [
+      {
+        "source": "root",
+        "name": "AGENTS.md",
+        "filePath": "D:\\suishi\\sagent\\AGENTS.md",
+        "relativePath": "AGENTS.md"
+      }
+    ],
+    "hasCustomRules": true
+  },
+  "startupScan": {
+    "cwd": "D:\\suishi\\sagent",
+    "scanRoot": "D:\\suishi\\sagent",
+    "projectRoot": "D:\\suishi\\sagent",
+    "canWarmCaches": true,
+    "sourceFileCount": 28
+  },
+  "languageProfile": {
+    "present": {
+      "jsts": true,
+      "python": true,
+      "go": false,
+      "rust": false,
+      "cxx": false,
+      "cmake": false,
+      "fish": false,
+      "shell": false,
+      "json": false,
+      "markdown": false,
+      "css": false,
+      "yaml": false,
+      "sql": false,
+      "ruby": false,
+      "html": false,
+      "docker": false,
+      "php": false,
+      "powershell": false,
+      "prisma": false,
+      "csharp": false,
+      "fsharp": false,
+      "java": false,
+      "kotlin": false,
+      "swift": false,
+      "dart": false,
+      "lua": false,
+      "zig": false,
+      "haskell": false,
+      "elixir": false,
+      "gleam": false,
+      "ocaml": false,
+      "clojure": false,
+      "terraform": false,
+      "nix": false,
+      "toml": false
+    },
+    "configured": {
+      "jsts": true
+    },
+    "counts": {
+      "python": 28
+    },
+    "detectedKinds": [
+      "jsts",
+      "python"
+    ]
+  },
+  "conventions": {
+    "frameworks": [],
+    "testRunners": [],
+    "buildTools": [],
+    "agentDocs": [
+      {
+        "filePath": "AGENTS.md",
+        "lineCount": 25
+      }
+    ]
+  }
+}
