@@ -92,6 +92,55 @@ def find_key_low(
     return min_low, f"{date_str}的回调区间最低价（无明确转折点）", min_idx
 
 
+def find_trend_break_ref(
+    bars: list[DailyBar],
+    signal_idx: int,
+    key_low_idx: int | None = None,
+) -> tuple[float, str]:
+    """识别趋势破坏参考位。
+
+    从 key_low 到信号日之间的上升波段中，找到 higher low 序列，
+    最后一个 higher low 作为趋势破坏参考位。
+    如果没有 higher low 序列，退回到 key_low。
+
+    Args:
+        bars: 日K线数据。
+        signal_idx: 信号日在 bars 中的索引。
+        key_low_idx: key_low 在 bars 中的索引。若为 None，自动计算。
+
+    Returns:
+        (参考位价格, 描述文本)
+    """
+    # 1. 获取 key_low 位置
+    if key_low_idx is None:
+        window = bars[: signal_idx + 1]
+        _kl, _src, key_low_idx = find_key_low(window)
+
+    # 2. 从 key_low 到 signal_idx 找 swing lows
+    trend_bars = bars[key_low_idx : signal_idx + 1]
+    swing_lows = find_swing_lows(trend_bars)
+    # 映射回全局索引
+    global_swings = [(key_low_idx + idx, low) for idx, low in swing_lows]
+
+    if not global_swings:
+        return bars[key_low_idx].low, f"与止损位相同（{bars[key_low_idx].date}）"
+
+    # 3. 找 higher low 序列
+    higher_lows: list[tuple[int, float]] = []
+    for i in range(1, len(global_swings)):
+        _idx_i, low_i = global_swings[i]
+        _idx_prev, low_prev = global_swings[i - 1]
+        if low_i > low_prev:
+            higher_lows.append(global_swings[i])
+
+    if higher_lows:
+        last_idx, last_low = higher_lows[-1]
+        return last_low, f"{bars[last_idx].date}的更高低点"
+
+    # 没有形成 higher low → 用 key_low
+    return bars[key_low_idx].low, f"与止损位相同（{bars[key_low_idx].date}）"
+
+
 def describe_stock(
     symbol: str, bars: list[DailyBar], max_chars: int = 900
 ) -> KlineDescription:

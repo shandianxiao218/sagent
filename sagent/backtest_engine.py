@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from statistics import mean
 from typing import Any
 
-from .kline import find_key_low
+from .kline import find_key_low, find_trend_break_ref
 from .models import DailyBar
 
 
@@ -49,6 +49,10 @@ class TradeLifecycle:
     buy_and_hold_return: float = (
         0.0  # 全程持有收益（不考虑止损止盈，持有到 max_holding 天）
     )
+
+    # 趋势破坏参考位 (#28)
+    trend_break_ref: float = 0.0  # 趋势破坏参考位
+    trend_break_desc: str = ""  # 参考位描述
 
 
 @dataclass(frozen=True)
@@ -96,11 +100,15 @@ class BacktestStats:
     strategy_vs_buyhold_diff: float = 0.0  # 止盈策略 vs 全程持有 收益差
 
 
-def find_key_low_for_signal(bars: list[DailyBar], signal_idx: int) -> float:
-    """获取信号日的 key_low（使用信号日及之前的数据）。"""
+def find_key_low_for_signal(bars: list[DailyBar], signal_idx: int) -> tuple[float, int]:
+    """获取信号日的 key_low 和索引（使用信号日及之前的数据）。
+
+    Returns:
+        (key_low 值, key_low 在 bars 中的索引)
+    """
     window = bars[: signal_idx + 1]
-    key_low, _source, _idx = find_key_low(window)
-    return round(key_low, 2)
+    key_low, _source, local_idx = find_key_low(window)
+    return round(key_low, 2), local_idx
 
 
 def simulate_trade(
@@ -127,10 +135,15 @@ def simulate_trade(
     signal_date = signal_bar.date
     entry_price = signal_bar.close
 
-    # 计算 key_low 和止损价
-    key_low = find_key_low_for_signal(bars, signal_idx)
+    # 计算 key_low、止损价和趋势破坏参考位
+    key_low, key_low_idx = find_key_low_for_signal(bars, signal_idx)
     stop_loss_price = round(max(entry_price * 0.95, key_low), 2)
     r_denom = entry_price - key_low  # 盈亏比分母
+
+    # 计算趋势破坏参考位 (#28)
+    trend_break_ref, trend_break_desc = find_trend_break_ref(
+        bars, signal_idx, key_low_idx=key_low_idx
+    )
 
     # 状态变量
     half_taken = False
@@ -194,13 +207,13 @@ def simulate_trade(
             daily_events[-1]["trigger_price"] = daily_high
             # 半仓锁定，继续持有剩余半仓
 
-        # 3. 如果已止盈一半，检查趋势破坏（跌破 key_low）
-        if half_taken and daily_low <= key_low:
+        # 3. 如果已止盈一半，检查趋势破坏（跌破 trend_break_ref）
+        if half_taken and daily_low <= trend_break_ref:
             exit_date = bar.date
-            exit_price = key_low
+            exit_price = round(trend_break_ref, 2)
             exit_reason = "半仓止盈后趋势破坏"
             locked_return = half_profit_r * r_denom / entry_price
-            remain_return = (key_low - entry_price) / entry_price
+            remain_return = (trend_break_ref - entry_price) / entry_price
             total_return = (locked_return + remain_return) / 2
             daily_events[-1]["event"] = "趋势破坏退出"
             daily_events[-1]["exit_price"] = exit_price
@@ -259,6 +272,8 @@ def simulate_trade(
         stop_loss_type=stop_loss_type,
         stop_loss_distance_pct=stop_loss_distance_pct,
         buy_and_hold_return=buy_and_hold_return,
+        trend_break_ref=round(trend_break_ref, 2),
+        trend_break_desc=trend_break_desc,
     )
 
 

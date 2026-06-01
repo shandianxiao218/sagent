@@ -122,6 +122,8 @@ class Position:
     trade_date: str
     half_taken: bool = False
     remaining_quantity: int | None = None
+    trend_break_ref: float = 0.0  # 趋势破坏参考位
+    trend_break_desc: str = ""  # 趋势破坏参考位描述
 
     def __post_init__(self) -> None:
         if self.remaining_quantity is None:
