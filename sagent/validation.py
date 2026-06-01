@@ -88,18 +88,20 @@ def run_validation_cases(
             predicted = _rule_engine_predict(case)
 
         match = predicted["action"] == expected
-        results.append({
-            "id": case.get("id"),
-            "name": case.get("name"),
-            "category": case.get("category"),
-            "human_label": case.get("human_label"),
-            "expected_action": expected,
-            "expected_key_low": case.get("expected_key_low"),
-            "predicted_action": predicted["action"],
-            "predicted_reason": predicted.get("reason", ""),
-            "predicted_confidence": predicted.get("confidence", 0),
-            "match": match,
-        })
+        results.append(
+            {
+                "id": case.get("id"),
+                "name": case.get("name"),
+                "category": case.get("category"),
+                "human_label": case.get("human_label"),
+                "expected_action": expected,
+                "expected_key_low": case.get("expected_key_low"),
+                "predicted_action": predicted["action"],
+                "predicted_reason": predicted.get("reason", ""),
+                "predicted_confidence": predicted.get("confidence", 0),
+                "match": match,
+            }
+        )
 
     # 汇总统计
     total = len(results)
@@ -114,7 +116,11 @@ def run_validation_cases(
             "correct": label_matches,
             "accuracy": round(label_matches / max(len(group), 1), 4),
             "errors": [
-                {"id": r["id"], "expected": r["expected_action"], "predicted": r["predicted_action"]}
+                {
+                    "id": r["id"],
+                    "expected": r["expected_action"],
+                    "predicted": r["predicted_action"],
+                }
                 for r in group
                 if not r["match"]
             ],
@@ -160,11 +166,13 @@ def prepare_all_validation_prompts(path: Path) -> list[dict]:
     cases = raw.get("cases", [])
     output: list[dict] = []
     for case in cases:
-        output.append({
-            "id": case.get("id"),
-            "name": case.get("name"),
-            "human_label": case.get("human_label"),
-            "expected_action": case.get("expected_action"),
-            "prompt": prepare_validation_prompt(case),
-        })
+        output.append(
+            {
+                "id": case.get("id"),
+                "name": case.get("name"),
+                "human_label": case.get("human_label"),
+                "expected_action": case.get("expected_action"),
+                "prompt": prepare_validation_prompt(case),
+            }
+        )
     return output

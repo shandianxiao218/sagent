@@ -192,7 +192,10 @@ def main() -> None:
         name = str(stock.get("name", ""))
 
         if (i + 1) % 20 == 0:
-            print(f"  进度: {i + 1}/{len(sample)}，已找到 {len(all_findings)} 个信号", file=sys.stderr)
+            print(
+                f"  进度: {i + 1}/{len(sample)}，已找到 {len(all_findings)} 个信号",
+                file=sys.stderr,
+            )
 
         try:
             bars = fetch_bars(symbol, offset=350)
@@ -219,16 +222,18 @@ def main() -> None:
             window_bars = bars[: check_idx + 1]
             desc = describe_stock(symbol, window_bars)
 
-            all_findings.append({
-                "symbol": symbol,
-                "name": name,
-                "signal_date": bars[check_idx].date,
-                "label": label,
-                "metrics": metrics,
-                "forward": fwd,
-                "kline_description": desc.text,
-                "key_low": desc.key_low,
-            })
+            all_findings.append(
+                {
+                    "symbol": symbol,
+                    "name": name,
+                    "signal_date": bars[check_idx].date,
+                    "label": label,
+                    "metrics": metrics,
+                    "forward": fwd,
+                    "kline_description": desc.text,
+                    "key_low": desc.key_low,
+                }
+            )
 
     print(f"\n共找到 {len(all_findings)} 个信号点", file=sys.stderr)
 
@@ -237,42 +242,43 @@ def main() -> None:
     negative = [f for f in all_findings if f["label"] == "反例"]
     borderline = [f for f in all_findings if f["label"] == "边界"]
 
-    print(f"正例: {len(positive)}，反例: {len(negative)}，边界: {len(borderline)}", file=sys.stderr)
+    print(
+        f"正例: {len(positive)}，反例: {len(negative)}，边界: {len(borderline)}",
+        file=sys.stderr,
+    )
 
     # 各取 4 个（按 20 日收益排序选典型的）
     positive.sort(key=lambda x: x["forward"].get("return_20d", 0), reverse=True)
     negative.sort(key=lambda x: x["forward"].get("return_20d", 0))
     borderline.sort(key=lambda x: abs(x["forward"].get("return_20d", 0) or 0))
 
-    selected = (
-        positive[:4]
-        + negative[:4]
-        + borderline[:4]
-    )
+    selected = positive[:4] + negative[:4] + borderline[:4]
 
     # 格式化为案例集
     cases = []
     for i, f in enumerate(selected):
-        cases.append({
-            "id": f"VR-{i + 1:03d}",
-            "name": f'{f["name"]}({f["symbol"]}) {f["signal_date"]}',
-            "period": f["signal_date"],
-            "category": "板块+个股",
-            "human_label": f["label"],
-            "sector_info": {
-                "sector": "待标注",
-                "level": "待标注",
-                "rules": {},
-                "needs_llm": False,
-            },
-            "kline_description": f["kline_description"],
-            "expected_action": "待标注",
-            "expected_key_low": f.get("key_low"),
-            "_forward_performance": f["forward"],
-            "_metrics": f["metrics"],
-            "_auto_label": f["label"],
-            "human_rationale": "待标注",
-        })
+        cases.append(
+            {
+                "id": f"VR-{i + 1:03d}",
+                "name": f"{f['name']}({f['symbol']}) {f['signal_date']}",
+                "period": f["signal_date"],
+                "category": "板块+个股",
+                "human_label": f["label"],
+                "sector_info": {
+                    "sector": "待标注",
+                    "level": "待标注",
+                    "rules": {},
+                    "needs_llm": False,
+                },
+                "kline_description": f["kline_description"],
+                "expected_action": "待标注",
+                "expected_key_low": f.get("key_low"),
+                "_forward_performance": f["forward"],
+                "_metrics": f["metrics"],
+                "_auto_label": f["label"],
+                "human_rationale": "待标注",
+            }
+        )
 
     output = {
         "version": "3.0",

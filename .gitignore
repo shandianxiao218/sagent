@@ -18,3 +18,12 @@ config/local.json
 # 临时文件
 .scratch/
 .DS_Store
+
+# 回测输出（可重新生成）
+backtest_result*.json
+backtest_oct25*.json
+backtest_llm_*.json
+backtest_72_*.json
+
+tmp_*.py
+tmp_*.md

@@ -24,7 +24,9 @@ format_mod = importlib.import_module("sagent.format")
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="sagent 报告格式化")
-    parser.add_argument("--input", help="prepare_scan JSON 文件路径（不指定则读 stdin）")
+    parser.add_argument(
+        "--input", help="prepare_scan JSON 文件路径（不指定则读 stdin）"
+    )
     parser.add_argument(
         "--format",
         choices=["markdown", "feishu"],

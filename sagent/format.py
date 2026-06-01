@@ -41,14 +41,16 @@ def format_candidate_table(candidates: list[dict]) -> str:
     rows: list[list[str]] = []
     for c in candidates:
         m = c.get("metrics", {})
-        rows.append([
-            f"{c.get('symbol', '')} {c.get('name', '')}",
-            c.get("sector", ""),
-            _pct(m.get("rise_60d")),
-            _pct(m.get("pullback_ratio")),
-            "是" if m.get("breakout") else "否",
-            _price(c.get("kline_key_low")),
-        ])
+        rows.append(
+            [
+                f"{c.get('symbol', '')} {c.get('name', '')}",
+                c.get("sector", ""),
+                _pct(m.get("rise_60d")),
+                _pct(m.get("pullback_ratio")),
+                "是" if m.get("breakout") else "否",
+                _price(c.get("kline_key_low")),
+            ]
+        )
 
     header = ["股票", "板块", "60日涨幅", "回调比例", "突破", "关键低点"]
     widths = _col_widths(header, rows)
@@ -83,15 +85,17 @@ def format_position_table(
         action = s.action if s else "持有"
         reason = s.reason if s else ""
 
-        rows.append([
-            f"{p.symbol} {p.name}",
-            _price(p.buy_price),
-            _price(price),
-            pnl_pct,
-            rr,
-            _price(p.key_low),
-            f"{action} {reason}",
-        ])
+        rows.append(
+            [
+                f"{p.symbol} {p.name}",
+                _price(p.buy_price),
+                _price(price),
+                pnl_pct,
+                rr,
+                _price(p.key_low),
+                f"{action} {reason}",
+            ]
+        )
 
     header = ["股票", "买入价", "现价", "盈亏", "盈亏比", "关键低点", "建议"]
     widths = _col_widths(header, rows)
@@ -165,7 +169,9 @@ def format_scan_summary(scan_result: dict) -> str:
         lines.append("")
         lines.append("### 模型降级")
         for e in fallback_events:
-            lines.append(f"- {e.get('original_model', '')} → {e.get('fallback_model', '')}：{e.get('reason', '')}")
+            lines.append(
+                f"- {e.get('original_model', '')} → {e.get('fallback_model', '')}：{e.get('reason', '')}"
+            )
 
     lines.append("")
     lines.append("---")
@@ -258,7 +264,11 @@ def _pad(text: str, width: int) -> str:
 def _markdown_table(header: list[str], rows: list[list[str]], widths: list[int]) -> str:
     """生成 Markdown 表格。"""
     lines: list[str] = []
-    hdr = "| " + " | ".join(_pad(h, w) for h, w in zip(header, widths, strict=True)) + " |"
+    hdr = (
+        "| "
+        + " | ".join(_pad(h, w) for h, w in zip(header, widths, strict=True))
+        + " |"
+    )
     sep = "| " + " | ".join("-" * (w + 1) for w in widths) + " |"
     lines.append(hdr)
     lines.append(sep)

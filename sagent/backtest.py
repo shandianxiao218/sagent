@@ -185,17 +185,35 @@ def run_layered_backtest(data, start: str = "", end: str = "") -> dict:
 
     # ─── 汇总统计 ───────────────────────────────────────────────
     # 全候选 forward
-    all_5d = [d["forward"]["5d"] for d in forward_data if d["forward"]["5d"] is not None]
-    all_10d = [d["forward"]["10d"] for d in forward_data if d["forward"]["10d"] is not None]
-    all_20d = [d["forward"]["20d"] for d in forward_data if d["forward"]["20d"] is not None]
-    all_mdd = [d["max_drawdown_20d"] for d in forward_data if d["max_drawdown_20d"] is not None]
+    all_5d = [
+        d["forward"]["5d"] for d in forward_data if d["forward"]["5d"] is not None
+    ]
+    all_10d = [
+        d["forward"]["10d"] for d in forward_data if d["forward"]["10d"] is not None
+    ]
+    all_20d = [
+        d["forward"]["20d"] for d in forward_data if d["forward"]["20d"] is not None
+    ]
+    all_mdd = [
+        d["max_drawdown_20d"] for d in forward_data if d["max_drawdown_20d"] is not None
+    ]
 
     # 主线 vs 非主线
-    mainline_forward = [d for d in forward_data if d.get("mainline_level") in ("强主线", "弱主线")]
-    non_mainline_forward = [d for d in forward_data if d.get("mainline_level") == "非主线"]
+    mainline_forward = [
+        d for d in forward_data if d.get("mainline_level") in ("强主线", "弱主线")
+    ]
+    non_mainline_forward = [
+        d for d in forward_data if d.get("mainline_level") == "非主线"
+    ]
 
-    ml_5d = [d["forward"]["5d"] for d in mainline_forward if d["forward"]["5d"] is not None]
-    nml_5d = [d["forward"]["5d"] for d in non_mainline_forward if d["forward"]["5d"] is not None]
+    ml_5d = [
+        d["forward"]["5d"] for d in mainline_forward if d["forward"]["5d"] is not None
+    ]
+    nml_5d = [
+        d["forward"]["5d"]
+        for d in non_mainline_forward
+        if d["forward"]["5d"] is not None
+    ]
 
     # ─── 阈值敏感度 ─────────────────────────────────────────────
     sensitivity = _threshold_sensitivity(data, pool.included)
@@ -224,12 +242,16 @@ def run_layered_backtest(data, start: str = "", end: str = "") -> dict:
             "L4_pullback": {
                 "input": len(l3_rise_pass),
                 "passed": len(l4_pullback_pass),
-                "pass_rate": round(len(l4_pullback_pass) / max(len(l3_rise_pass), 1), 4),
+                "pass_rate": round(
+                    len(l4_pullback_pass) / max(len(l3_rise_pass), 1), 4
+                ),
             },
             "L5_breakout": {
                 "input": len(l4_pullback_pass),
                 "passed": len(l5_breakout_pass),
-                "pass_rate": round(len(l5_breakout_pass) / max(len(l4_pullback_pass), 1), 4),
+                "pass_rate": round(
+                    len(l5_breakout_pass) / max(len(l4_pullback_pass), 1), 4
+                ),
             },
             "L6_mainline": {
                 "input": len(l5_breakout_pass),
@@ -282,10 +304,16 @@ def _threshold_sensitivity(data, stocks: list) -> dict:
             if closes[-1] <= _ma(closes, 250):
                 continue
             recent_60 = closes[-60:]
-            rise = (max(recent_60) - min(recent_60)) / min(recent_60) if min(recent_60) else 0
+            rise = (
+                (max(recent_60) - min(recent_60)) / min(recent_60)
+                if min(recent_60)
+                else 0
+            )
             if rise >= threshold:
                 count += 1
-        rise_sensitivity.append({"threshold": f"rise>={int(threshold * 100)}%", "candidates": count})
+        rise_sensitivity.append(
+            {"threshold": f"rise>={int(threshold * 100)}%", "candidates": count}
+        )
     results["rise_60d"] = rise_sensitivity
 
     # 回调区间敏感度
@@ -309,10 +337,12 @@ def _threshold_sensitivity(data, stocks: list) -> dict:
             pullback = (high_60 - min(closes[-30:])) / max(high_60 - low_60, 0.01)
             if lo <= pullback <= hi:
                 count += 1
-        pullback_sensitivity.append({
-            "threshold": f"pullback {int(lo * 100)}%-{int(hi * 100)}%",
-            "candidates": count,
-        })
+        pullback_sensitivity.append(
+            {
+                "threshold": f"pullback {int(lo * 100)}%-{int(hi * 100)}%",
+                "candidates": count,
+            }
+        )
     results["pullback_range"] = pullback_sensitivity
 
     return results
