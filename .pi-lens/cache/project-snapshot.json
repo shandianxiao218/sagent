@@ -1,7 +1,7 @@
 {
   "version": 1,
   "projectRoot": "D:/suishi/sagent",
-  "generatedAt": "2026-06-02T00:11:41.804Z",
+  "generatedAt": "2026-06-02T04:44:05.442Z",
   "seq": 192,
   "files": {
     "D:/suishi/sagent/close_issues.py": {
@@ -290,6 +290,13 @@
       "size": 5395,
       "imports": [],
       "lastSeq": 0
+    },
+    "D:/suishi/sagent/scripts/analyze_stoploss.py": {
+      "path": "D:/suishi/sagent/scripts/analyze_stoploss.py",
+      "mtimeMs": 1780374940167.5986,
+      "size": 3194,
+      "imports": [],
+      "lastSeq": 0
     }
   },
   "symbols": {},
@@ -314,6 +321,7 @@
     "D:/suishi/sagent/sagent/validation.py": [],
     "D:/suishi/sagent/scripts/analyze_llm_judge.py": [],
     "D:/suishi/sagent/scripts/analyze_stock.py": [],
+    "D:/suishi/sagent/scripts/analyze_stoploss.py": [],
     "D:/suishi/sagent/scripts/apply_decision.py": [],
     "D:/suishi/sagent/scripts/find_real_cases.py": [],
     "D:/suishi/sagent/scripts/format_report.py": [],

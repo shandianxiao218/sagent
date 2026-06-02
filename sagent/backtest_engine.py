@@ -24,7 +24,7 @@ class TradeLifecycle:
     signal_date: str  # 信号日
     entry_price: float  # 买入价（信号日收盘价）
     key_low: float  # 关键低点
-    stop_loss_price: float  # 止损价 = max(entry_price * 0.95, key_low)
+    stop_loss_price: float  # 止损价 = max(entry_price * 0.92, key_low)，取更紧的那个
 
     # 退出信息
     exit_date: str | None  # 退出日期（None=未退出）
@@ -42,7 +42,7 @@ class TradeLifecycle:
     max_r: float = 0.0  # 持仓期间最大盈亏比
 
     # 止损类型追踪 (#26)
-    stop_loss_type: str = ""  # "硬性5%" | "key_low" | ""（未止损时为空）
+    stop_loss_type: str = ""  # "硬性8%" | "key_low" | ""（未止损时为空）
     stop_loss_distance_pct: float = 0.0  # 止损价距买入价的百分比距离（负数）
 
     # 全程持有对比 (#27)
@@ -79,7 +79,7 @@ class BacktestStats:
     trades: list[TradeLifecycle]
 
     # 止损类型分组统计 (#26)
-    hard_stop_loss_count: int = 0  # 硬性5%止损次数
+    hard_stop_loss_count: int = 0  # 硬性8%止损次数
     key_low_stop_loss_count: int = 0  # key_low止损次数
     hard_stop_loss_rate: float = 0.0  # 硬性止损率
     key_low_stop_loss_rate: float = 0.0  # key_low止损率
@@ -137,8 +137,8 @@ def simulate_trade(
 
     # 计算 key_low、止损价和趋势破坏参考位
     key_low, key_low_idx = find_key_low_for_signal(bars, signal_idx)
-    stop_loss_price = round(max(entry_price * 0.95, key_low), 2)
-    r_denom = entry_price - key_low  # 盈亏比分母
+    stop_loss_price = round(max(entry_price * 0.92, key_low), 2)
+    r_denom = entry_price - stop_loss_price  # 盈亏比分母（基于实际止损价）
 
     # 计算趋势破坏参考位 (#28)
     trend_break_ref, trend_break_desc = find_trend_break_ref(
@@ -239,10 +239,10 @@ def simulate_trade(
             daily_events[-1]["exit_price"] = exit_price
 
     # 判断止损类型 (#26)
-    hard_stop_threshold = round(entry_price * 0.95, 2)
+    hard_stop_threshold = round(entry_price * 0.92, 2)
     if exit_reason == "止损":
         if exit_price == hard_stop_threshold and hard_stop_threshold > key_low:
-            stop_loss_type = "硬性5%"
+            stop_loss_type = "硬性8%"
         else:
             stop_loss_type = "key_low"
     else:
@@ -281,6 +281,8 @@ def run_backtest_engine(
     bars_map: dict[str, list[DailyBar]],
     signals: list[dict[str, Any]],
     max_holding: int = 20,
+    min_sl_distance: float = 0.0,
+    exclude_st: bool = True,
 ) -> BacktestStats:
     """对多个信号执行逐日止损/止盈回测。
 
@@ -291,17 +293,27 @@ def run_backtest_engine(
             - signal_date: 信号日（str，格式 YYYY-MM-DD）
             - signal_idx: 信号日在 bars 中的索引（可选，若不提供则按日期查找）
         max_holding: 最大持有天数。
+        min_sl_distance: 最小止损距离（如 0.03 = 3%），低于此值的信号被过滤。
+        exclude_st: 是否过滤 ST 股票（名称含 ST）。
 
     Returns:
         BacktestStats 包含整体统计和逐笔交易生命周期。
     """
     trades: list[TradeLifecycle] = []
+    filtered_count = 0
 
     for signal in signals:
         symbol = signal["symbol"]
         bars = bars_map.get(symbol)
         if bars is None or len(bars) < 2:
             continue
+
+        # 过滤 ST 股票
+        if exclude_st:
+            name = signal.get("name", "")
+            if "ST" in name.upper() or "*ST" in name.upper():
+                filtered_count += 1
+                continue
 
         # 确定信号日索引
         signal_idx = signal.get("signal_idx")
@@ -320,7 +332,16 @@ def run_backtest_engine(
         if signal_idx >= len(bars) - 1:
             continue
 
+        # 先模拟交易
         trade = simulate_trade(bars, signal_idx, max_holding)
+
+        # 过滤止损距离过小的信号
+        if min_sl_distance > 0:
+            sl_dist = (trade.entry_price - trade.stop_loss_price) / trade.entry_price
+            if sl_dist < min_sl_distance:
+                filtered_count += 1
+                continue
+
         trades.append(trade)
 
     # 汇总统计
@@ -347,7 +368,7 @@ def run_backtest_engine(
     win_count = sum(1 for r in all_returns if r > 0)
 
     # 止损类型分组统计 (#26)
-    hard_sl = [t for t in trades if t.stop_loss_type == "硬性5%"]
+    hard_sl = [t for t in trades if t.stop_loss_type == "硬性8%"]
     key_low_sl = [t for t in trades if t.stop_loss_type == "key_low"]
     oversized = [t for t in trades if t.stop_loss_distance_pct < -0.08]
 
