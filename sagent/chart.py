@@ -39,9 +39,9 @@ def _classify_bars(bars: list[DailyBar], symbol: str = "") -> tuple:
     limit_pct = _limit_up_pct(symbol)
 
     # 用于各组的数据
-    lu_o, lu_h, lu_l, lu_c = [None]*n, [None]*n, [None]*n, [None]*n
-    bu_o, bu_h, bu_l, bu_c = [None]*n, [None]*n, [None]*n, [None]*n
-    be_o, be_h, be_l, be_c = [None]*n, [None]*n, [None]*n, [None]*n
+    lu_o, lu_h, lu_l, lu_c = [None] * n, [None] * n, [None] * n, [None] * n
+    bu_o, bu_h, bu_l, bu_c = [None] * n, [None] * n, [None] * n, [None] * n
+    be_o, be_h, be_l, be_c = [None] * n, [None] * n, [None] * n, [None] * n
 
     prev_close = bars[0].close  # 第一根没有前收，用自身 close
     for i, bar in enumerate(bars):
@@ -52,9 +52,19 @@ def _classify_bars(bars: list[DailyBar], symbol: str = "") -> tuple:
         if bar.close >= bar.open:  # 阳线
             # 涨停判断：收盘涨幅 >= 涨停幅度 - 0.5%（容差）
             if chg >= limit_pct - 0.005 and i > 0:
-                lu_o[i], lu_h[i], lu_l[i], lu_c[i] = bar.open, bar.high, bar.low, bar.close
+                lu_o[i], lu_h[i], lu_l[i], lu_c[i] = (
+                    bar.open,
+                    bar.high,
+                    bar.low,
+                    bar.close,
+                )
             else:
-                bu_o[i], bu_h[i], bu_l[i], bu_c[i] = bar.open, bar.high, bar.low, bar.close
+                bu_o[i], bu_h[i], bu_l[i], bu_c[i] = (
+                    bar.open,
+                    bar.high,
+                    bar.low,
+                    bar.close,
+                )
         else:  # 阴线
             be_o[i], be_h[i], be_l[i], be_c[i] = bar.open, bar.high, bar.low, bar.close
 
@@ -127,10 +137,7 @@ def plot_stock_kline(
 
     # 计算涨幅用于 hover
     prev_closes = [closes[0]] + closes[:-1]
-    changes = [
-        (c - p) / p * 100 if p > 0 else 0
-        for c, p in zip(closes, prev_closes)
-    ]
+    changes = [(c - p) / p * 100 if p > 0 else 0 for c, p in zip(closes, prev_closes)]
 
     # 构建 hover 文本（日期、OHLC、涨幅、成交量）
     hover_texts = [
@@ -148,40 +155,64 @@ def plot_stock_kline(
     # 1. 涨停 — 红色实心
     fig.add_trace(
         go.Candlestick(
-            x=x_idx, open=lu[0], high=lu[1], low=lu[2], close=lu[3],
-            increasing_line_color="red", increasing_fillcolor="red",
-            decreasing_line_color="red", decreasing_fillcolor="red",
-            text=hover_texts, hoverinfo="text",
+            x=x_idx,
+            open=lu[0],
+            high=lu[1],
+            low=lu[2],
+            close=lu[3],
+            increasing_line_color="red",
+            increasing_fillcolor="red",
+            decreasing_line_color="red",
+            decreasing_fillcolor="red",
+            text=hover_texts,
+            hoverinfo="text",
             name="涨停",
             showlegend=False,
         ),
-        row=1, col=1,
+        row=1,
+        col=1,
     )
 
     # 2. 阳线 — 红色空心（红边白心）
     fig.add_trace(
         go.Candlestick(
-            x=x_idx, open=bu[0], high=bu[1], low=bu[2], close=bu[3],
-            increasing_line_color="red", increasing_fillcolor="white",
-            decreasing_line_color="red", decreasing_fillcolor="white",
-            text=hover_texts, hoverinfo="text",
+            x=x_idx,
+            open=bu[0],
+            high=bu[1],
+            low=bu[2],
+            close=bu[3],
+            increasing_line_color="red",
+            increasing_fillcolor="white",
+            decreasing_line_color="red",
+            decreasing_fillcolor="white",
+            text=hover_texts,
+            hoverinfo="text",
             name="阳线",
             showlegend=False,
         ),
-        row=1, col=1,
+        row=1,
+        col=1,
     )
 
     # 3. 阴线 — 绿色实心
     fig.add_trace(
         go.Candlestick(
-            x=x_idx, open=be[0], high=be[1], low=be[2], close=be[3],
-            increasing_line_color="green", increasing_fillcolor="green",
-            decreasing_line_color="green", decreasing_fillcolor="green",
-            text=hover_texts, hoverinfo="text",
+            x=x_idx,
+            open=be[0],
+            high=be[1],
+            low=be[2],
+            close=be[3],
+            increasing_line_color="green",
+            increasing_fillcolor="green",
+            decreasing_line_color="green",
+            decreasing_fillcolor="green",
+            text=hover_texts,
+            hoverinfo="text",
             name="阴线",
             showlegend=False,
         ),
-        row=1, col=1,
+        row=1,
+        col=1,
     )
 
     # 成交量柱状图（涨停=红色，阳线=红色，阴线=绿色）
@@ -215,7 +246,8 @@ def plot_stock_kline(
                 name="成交量",
                 showlegend=False,
             ),
-            row=2, col=1,
+            row=2,
+            col=1,
         )
 
     # 构建日期→索引映射（用于标注定位）
@@ -241,7 +273,8 @@ def plot_stock_kline(
                     name=ann.text,
                     showlegend=False,
                 ),
-                row=1, col=1,
+                row=1,
+                col=1,
             )
 
     # 水平参考线
@@ -254,7 +287,8 @@ def plot_stock_kline(
                 line_width=hl.width,
                 annotation_text=hl.label,
                 annotation_position="top left",
-                row=1, col=1,
+                row=1,
+                col=1,
             )
 
     # 区间高亮
@@ -263,13 +297,15 @@ def plot_stock_kline(
             x0 = date_to_idx.get(hr.start_date, hr.start_date)
             x1 = date_to_idx.get(hr.end_date, hr.end_date)
             fig.add_vrect(
-                x0=x0, x1=x1,
+                x0=x0,
+                x1=x1,
                 fillcolor=hr.color,
                 layer="below",
                 line_width=0,
                 annotation_text=hr.label,
                 annotation_position="top left",
-                row=1, col=1,
+                row=1,
+                col=1,
             )
 
     # ── 布局 ──
@@ -308,14 +344,16 @@ def plot_stock_kline(
         tickvals=tick_vals,
         ticktext=tick_text,
         tickangle=45,
-        row=1, col=1,
+        row=1,
+        col=1,
     )
     if show_volume:
         fig.update_xaxes(
             tickvals=tick_vals,
             ticktext=tick_text,
             tickangle=45,
-            row=2, col=1,
+            row=2,
+            col=1,
         )
 
     fig.update_yaxes(title_text="价格", row=1, col=1)
