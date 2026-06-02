@@ -31,6 +31,7 @@ async function runPython(cwd: string, script: string, args: string[] = []) {
 			cwd,
 			encoding: "utf8",
 			windowsHide: true,
+			env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" },
 		},
 	);
 	return { stdout: stdout.trim(), stderr: stderr.trim() };
@@ -69,22 +70,33 @@ export default function sagentExtension(pi: ExtensionAPI) {
 	});
 
 	// ── Tool: prepare_scan ──────────────────────────────────────
-	// Python 量化粗筛，使用 mootdx + AKShare 真实行情数据
-	// 输出结构化 JSON 供 pi agent 做 LLM 判断
+	// Python 量化粗筛 + LLM 规则引擎判断，使用 mootdx + AKShare 真实行情数据
+	// 输出结构化 JSON：包含初筛理由、K 线描述、LLM 判断结果、板块验证
 	pi.registerTool({
 		name: "prepare_scan",
 		label: "Prepare Scan Data",
 		description:
-			"执行 sagent 量化粗筛（真实行情）：股票池过滤 → 技术候选 → K 线描述 → 板块验证 → 持仓监控。不做 LLM 判断，输出结构化 JSON 供你分析。",
-		promptSnippet: "准备 sagent 扫描数据，获取候选股和板块验证结果。",
+			"执行 sagent 扫描（真实行情）：股票池过滤 → 技术候选 → K 线描述 → LLM 判断 → 板块验证 → 持仓监控。输出包含初筛理由和 LLM 判断结果的完整 JSON。",
+		promptSnippet: "准备 sagent 扫描数据，获取候选股和判断结果。",
 		promptGuidelines: [
-			"prepare_scan 输出的 candidates 包含 K 线描述和量化指标，你需要用 a-share-main-trend skill 对每个候选做判断。",
-			"sectors 中 needs_llm=true 的板块需要你做 LLM 判断（主线/弱主线/非主线）。",
+			"prepare_scan 输出的 candidates 同时包含量化粗筛理由（screening_reasons）和 LLM 判断结果（llm_judgment）。",
+			"llm_judgment.action 为买入/观察/放弃，reason 为判断理由。",
 			"使用 prepare_scan 的输出时，必须提醒用户不构成投资建议。",
 		],
-		parameters: Type.Object({}),
-		async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
-			const result = await runPython(ctx.cwd, "prepare_scan.py", []);
+		parameters: Type.Object({
+			days: Type.Optional(
+				Type.Number({
+					description: "扫描近 N 个交易日（默认 1），例如 days=5 扫描近一周",
+					default: 1,
+				}),
+			),
+		}),
+		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			const args: string[] = [];
+			if (params.days && params.days > 1) {
+				args.push("--days", String(params.days));
+			}
+			const result = await runPython(ctx.cwd, "prepare_scan.py", args);
 			return {
 				content: [{ type: "text", text: result.stdout }],
 				details: { stderr: result.stderr, data: parseJson(result.stdout) },
@@ -127,6 +139,7 @@ export default function sagentExtension(pi: ExtensionAPI) {
 					const child = spawn(PYTHON, [scriptPath, ...args], {
 						cwd: ctx.cwd,
 						windowsHide: true,
+						env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" },
 					});
 					let stdout = "";
 					let stderr = "";
@@ -227,67 +240,82 @@ export default function sagentExtension(pi: ExtensionAPI) {
 	});
 
 	// ── Command: /scan ──────────────────────────────────────────
-	// pi agent 主导的完整扫描流程（真实行情）
+	// 完整扫描流程：初筛 + LLM 判断 + 结果展示
 	pi.registerCommand("scan", {
 		description:
-			"执行 sagent 每日扫描（真实行情）：量化粗筛 → LLM 判断 → 写入持仓 → 飞书推送",
-		handler: async (_args, ctx) => {
-			ctx.ui.notify("sagent /scan 开始：正在连接通达信获取真实行情...", "info");
+			"执行 sagent 扫描（真实行情）：量化粗筛 + LLM 判断 + 结果展示。支持 /scan 5 扫描近5日。",
+		handler: async (args, ctx) => {
+			const days = parseInt((args ?? "").trim() || "1", 10) || 1;
+			ctx.ui.notify(
+				`sagent /scan 开始：正在连接通达信获取真实行情（近 ${days} 日）...`,
+				"info",
+			);
 
 			try {
-				// Step 1: 量化粗筛（真实数据）
-				const prepareResult = await runPython(ctx.cwd, "prepare_scan.py", []);
+				const scanArgs = days > 1 ? ["--days", String(days)] : [];
+				const prepareResult = await runPython(
+					ctx.cwd,
+					"prepare_scan.py",
+					scanArgs,
+				);
 				const data = parseJson(prepareResult.stdout);
 
-				// Step 2: 把结构化数据发给 pi agent，让 pi 用自身模型做判断
+				// 候选股摘要（包含初筛 + LLM 判断）
 				const candidateSummaries = (data.candidates ?? [])
-					.map(
-						(c: any) =>
-							`- ${c.symbol} ${c.name} | 板块: ${c.sector} | 关键低点: ${c.kline_key_low}\n  K线: ${c.kline_description}`,
-					)
+					.map((c: any) => {
+						const screen = (c.screening_reasons ?? []).join("、");
+						const llm = c.llm_judgment ?? {};
+						const actionIcon =
+							llm.action === "买入" ? "\u2705" : llm.action === "观察" ? "\uD83D\uDC40" : "\u274C";
+						return (
+							`### ${actionIcon} ${c.symbol} ${c.name} \u2014 ${llm.action}\n` +
+							`- 价格: ${c.current} | 止损: ${c.stop_loss_price} | key_low: ${c.key_low}\n` +
+							`- 60日涨幅: ${(c.rise_60d * 100).toFixed(1)}% | 回调: ${(c.pullback_ratio * 100).toFixed(1)}%\n` +
+							`- **初筛理由**: ${screen}\n` +
+							`- **LLM判断**: ${llm.reason} (置信度 ${((llm.confidence ?? 0) * 100).toFixed(0)}%)\n` +
+							`- 无效条件: ${llm.invalid_condition ?? "未给出"}`
+						);
+					})
 					.join("\n\n");
 
 				const sectorSummaries = (data.sectors ?? [])
 					.map(
 						(s: any) =>
-							`- ${s.sector}: ${s.level}${s.needs_llm ? " (需LLM判断)" : ""}`,
+							`- ${s.sector}: ${s.level} \u2192 ${s.judgment?.action ?? "未知"}`,
 					)
 					.join("\n");
 
 				const portfolioInfo =
 					data.portfolio?.positions?.length > 0
-						? `持仓 ${data.portfolio.positions.length} 只，建议: ${JSON.stringify(data.portfolio.suggestions)}`
+						? `持仓 ${data.portfolio.positions.length} 只`
 						: "无持仓";
+
+				const scanDaysInfo = days > 1 ? `（近 ${days} 日扫描）` : "";
+
+				// 统计 LLM 判断结果
+				const candidates = data.candidates ?? [];
+				const buyCount = candidates.filter(
+					(c: any) => c.llm_judgment?.action === "买入",
+				).length;
+				const watchCount = candidates.filter(
+					(c: any) => c.llm_judgment?.action === "观察",
+				).length;
+				const skipCount = candidates.filter(
+					(c: any) => c.llm_judgment?.action === "放弃",
+				).length;
 
 				pi.sendMessage(
 					{
 						customType: "sagent-scan-ready",
-						content: `# sagent 扫描数据已就绪
-
-## 板块验证
-${sectorSummaries}
-
-## 候选股（${(data.candidates ?? []).length} 只）
-${candidateSummaries || "无候选股"}
-
-## 持仓状态
-${portfolioInfo}
-
----
-
-请使用 **a-share-main-trend** skill 对以上数据做判断：
-1. 对 needs_llm 的板块判断主线/弱主线/非主线
-2. 对每只候选股判断买入/观察/放弃，给出 key_low、止损价、无效条件
-3. 判断完成后用 **apply_decision** tool 写入 portfolio
-
-⚠️ 仅作研究和辅助分析，不构成投资建议。`,
+						content: `# sagent 扫描结果${scanDaysInfo}\n\n扫描 ${data.stock_pool?.total_listed ?? "?"} 只 A 股，发现 ${candidates.length} 个候选：买入 ${buyCount} | 观察 ${watchCount} | 放弃 ${skipCount}\n\n## 候选股详情\n\n${candidateSummaries || "无候选股"}\n\n## 板块验证\n\n${sectorSummaries || "无板块数据"}\n\n## 持仓状态\n\n${portfolioInfo}\n\n---\n\n如需对判断结果采取行动，使用 **apply_decision** tool 写入 portfolio。\n\n\u26A0\uFE0F 仅作研究和辅助分析，不构成投资建议。`,
 						display: true,
 						details: data,
 					},
 					{ triggerTurn: true, deliverAs: "nextTurn" },
 				);
 			} catch (error) {
-				const message = error instanceof Error ? error.message : String(error);
+				const message =
+					error instanceof Error ? error.message : String(error);
 				ctx.ui.notify(`sagent /scan 失败：${message}`, "error");
 			}
 		},
