@@ -164,8 +164,10 @@ def main() -> None:
             output_path=str(out3),
         )
         lifecycle_count += 1
-        print(f"  [{lifecycle_count}] {sym} {signal_date} | "
-              f"退出={lifecycle.exit_reason} Rmax={lifecycle.max_r:.1f}")
+        print(
+            f"  [{lifecycle_count}] {sym} {signal_date} | "
+            f"退出={lifecycle.exit_reason} Rmax={lifecycle.max_r:.1f}"
+        )
 
     # ── 4. 组合仪表盘 ───────────────────────────────────────
     print(f"\n[4/5] 生成组合仪表盘...")
@@ -217,7 +219,9 @@ def main() -> None:
     print(f"  组合仪表盘 -> {dashboard_path}")
 
     # ── 5. 汇总 ─────────────────────────────────────────────
-    total = signal_count * 2 + lifecycle_count + 1  # signal + structure + lifecycle + dashboard
+    total = (
+        signal_count * 2 + lifecycle_count + 1
+    )  # signal + structure + lifecycle + dashboard
     print(f"\n[5/5] === 完成 ===")
     print(f"  信号标注图:   {signal_count} 个")
     print(f"  波峰波谷图:   {signal_count} 个")
@@ -255,19 +259,23 @@ def _build_simulated_nav(trades: list[dict]) -> list[DailyNAV]:
                 qty = int(amount // entry) if entry > 0 else 0
                 if qty > 0:
                     cash -= qty * entry
-                    open_positions.append({
-                        "symbol": t["symbol"],
-                        "entry": entry,
-                        "qty": qty,
-                        "open_date": date,
-                    })
+                    open_positions.append(
+                        {
+                            "symbol": t["symbol"],
+                            "entry": entry,
+                            "qty": qty,
+                            "open_date": date,
+                        }
+                    )
 
         # 平仓
         for pos in list(open_positions):
             for t in sorted_trades:
-                if (t.get("symbol") == pos["symbol"]
-                        and t.get("signal_date") == pos["open_date"]
-                        and t.get("exit_date") == date):
+                if (
+                    t.get("symbol") == pos["symbol"]
+                    and t.get("signal_date") == pos["open_date"]
+                    and t.get("exit_date") == date
+                ):
                     exit_price = t.get("exit_price", t.get("entry_price", 0))
                     cash += pos["qty"] * exit_price
                     open_positions.remove(pos)
@@ -276,13 +284,15 @@ def _build_simulated_nav(trades: list[dict]) -> list[DailyNAV]:
         pos_value = sum(p["qty"] * p["entry"] for p in open_positions)
         total_value = cash + pos_value
 
-        daily_nav.append(DailyNAV(
-            date=date,
-            cash=round(cash, 2),
-            position_value=round(pos_value, 2),
-            total_value=round(total_value, 2),
-            open_positions=len(open_positions),
-        ))
+        daily_nav.append(
+            DailyNAV(
+                date=date,
+                cash=round(cash, 2),
+                position_value=round(pos_value, 2),
+                total_value=round(total_value, 2),
+                open_positions=len(open_positions),
+            )
+        )
 
     return daily_nav
 

@@ -64,10 +64,13 @@ def plot_stock_kline(
     closes = [bar.close for bar in bars]
     volumes = [bar.volume for bar in bars]
 
+    # 用整数索引作为 x 轴，去除非交易日间隔
+    x_idx = list(range(len(bars)))
+
     # 蜡烛图 — 红涨绿跌
     fig.add_trace(
         go.Candlestick(
-            x=dates,
+            x=x_idx,
             open=opens,
             high=highs,
             low=lows,
@@ -85,7 +88,7 @@ def plot_stock_kline(
         vol_colors = ["red" if c >= o else "green" for c, o in zip(closes, opens)]
         fig.add_trace(
             go.Bar(
-                x=dates,
+                x=x_idx,
                 y=volumes,
                 marker_color=vol_colors,
                 name="成交量",
@@ -95,13 +98,17 @@ def plot_stock_kline(
             col=1,
         )
 
+    # 构建日期→索引映射（用于标注定位）
+    date_to_idx = {bar.date: i for i, bar in enumerate(bars)}
+
     # 点标注
     if annotations:
         for ann in annotations:
             marker_symbol = _map_marker_symbol(ann.symbol)
+            ann_x = date_to_idx.get(ann.date, ann.date)
             fig.add_trace(
                 go.Scatter(
-                    x=[ann.date],
+                    x=[ann_x],
                     y=[ann.price],
                     mode="markers+text",
                     marker=dict(
@@ -135,9 +142,11 @@ def plot_stock_kline(
     # 区间高亮
     if highlight_ranges:
         for hr in highlight_ranges:
+            x0 = date_to_idx.get(hr.start_date, hr.start_date)
+            x1 = date_to_idx.get(hr.end_date, hr.end_date)
             fig.add_vrect(
-                x0=hr.start_date,
-                x1=hr.end_date,
+                x0=x0,
+                x1=x1,
                 fillcolor=hr.color,
                 layer="below",
                 line_width=0,
@@ -156,6 +165,27 @@ def plot_stock_kline(
         template="plotly_white",
         showlegend=True,
     )
+
+    # X轴：用日期标签替换数字索引，去除非交易日间隙
+    tick_step = max(1, len(dates) // 20)  # 约20个刻度
+    tick_vals = list(range(0, len(dates), tick_step))
+    tick_text = [dates[i] for i in tick_vals]
+    fig.update_xaxes(
+        tickvals=tick_vals,
+        ticktext=tick_text,
+        tickangle=45,
+        row=1,
+        col=1,
+    )
+    if show_volume:
+        fig.update_xaxes(
+            tickvals=tick_vals,
+            ticktext=tick_text,
+            tickangle=45,
+            row=2,
+            col=1,
+        )
+
     fig.update_yaxes(title_text="价格", row=1, col=1)
     if show_volume:
         fig.update_yaxes(title_text="成交量", row=2, col=1)
@@ -201,10 +231,14 @@ def plot_trade_lifecycle(
     lows = [bar.low for bar in bars]
     closes = [bar.close for bar in bars]
 
+    # 用整数索引作为 x 轴，去除非交易日间隔
+    x_idx = list(range(len(bars)))
+    date_to_idx = {bar.date: i for i, bar in enumerate(bars)}
+
     # ── Row 1: K线 + 标注 ──────────────────────────────────
     fig.add_trace(
         go.Candlestick(
-            x=dates,
+            x=x_idx,
             open=opens,
             high=highs,
             low=lows,
@@ -242,9 +276,10 @@ def plot_trade_lifecycle(
     )
 
     # 买入点（绿色三角向上）
+    buy_x = date_to_idx.get(trade.signal_date, trade.signal_date)
     fig.add_trace(
         go.Scatter(
-            x=[trade.signal_date],
+            x=[buy_x],
             y=[trade.entry_price],
             mode="markers+text",
             marker=dict(symbol="triangle-up", color="green", size=14),
@@ -259,9 +294,11 @@ def plot_trade_lifecycle(
 
     # 持仓区间高亮
     if trade.exit_date:
+        vrect_x0 = date_to_idx.get(trade.signal_date, trade.signal_date)
+        vrect_x1 = date_to_idx.get(trade.exit_date, trade.exit_date)
         fig.add_vrect(
-            x0=trade.signal_date,
-            x1=trade.exit_date,
+            x0=vrect_x0,
+            x1=vrect_x1,
             fillcolor="rgba(0,200,0,0.08)",
             layer="below",
             line_width=0,
@@ -270,16 +307,17 @@ def plot_trade_lifecycle(
         )
 
     # 退出点标注 + 事件标注
-    _add_trade_event_markers(fig, trade)
+    _add_trade_event_markers(fig, trade, date_to_idx)
 
     # ── Row 2: R值曲线 ────────────────────────────────────
     event_dates = [e["date"] for e in trade.daily_events]
+    event_x = [date_to_idx.get(e["date"], e["date"]) for e in trade.daily_events]
     r_values = [e.get("r_ratio", 0) for e in trade.daily_events]
 
     if event_dates:
         fig.add_trace(
             go.Scatter(
-                x=event_dates,
+                x=event_x,
                 y=r_values,
                 mode="lines+markers",
                 line=dict(color="purple", width=1.5),
@@ -327,6 +365,14 @@ def plot_trade_lifecycle(
         template="plotly_white",
         showlegend=False,
     )
+
+    # X轴日期标签
+    tick_step = max(1, len(dates) // 15)
+    tick_vals = list(range(0, len(dates), tick_step))
+    tick_text = [dates[i] for i in tick_vals]
+    fig.update_xaxes(tickvals=tick_vals, ticktext=tick_text, tickangle=45, row=1, col=1)
+    fig.update_xaxes(tickvals=tick_vals, ticktext=tick_text, tickangle=45, row=2, col=1)
+
     fig.update_yaxes(title_text="价格", row=1, col=1)
     fig.update_yaxes(title_text="R值", row=2, col=1)
 
@@ -336,8 +382,10 @@ def plot_trade_lifecycle(
     return fig
 
 
-def _add_trade_event_markers(fig: go.Figure, trade: TradeLifecycle) -> None:
+def _add_trade_event_markers(fig: go.Figure, trade: TradeLifecycle, date_to_idx: dict[str, int] | None = None) -> None:
     """在 K 线图上添加退出点和事件标注。"""
+    if date_to_idx is None:
+        date_to_idx = {}
     # 退出点
     if trade.exit_date and trade.exit_price is not None:
         if trade.exit_reason == "止损":
@@ -357,9 +405,10 @@ def _add_trade_event_markers(fig: go.Figure, trade: TradeLifecycle) -> None:
         else:
             color, marker, label = "blue", "circle", f"退出 {trade.exit_price:.2f}"
 
+        exit_x = date_to_idx.get(trade.exit_date, trade.exit_date)
         fig.add_trace(
             go.Scatter(
-                x=[trade.exit_date],
+                x=[exit_x],
                 y=[trade.exit_price],
                 mode="markers+text",
                 marker=dict(symbol=marker, color=color, size=14),
@@ -376,11 +425,12 @@ def _add_trade_event_markers(fig: go.Figure, trade: TradeLifecycle) -> None:
     for event in trade.daily_events:
         evt = event.get("event", "")
         evt_date = event.get("date", "")
+        evt_x = date_to_idx.get(evt_date, evt_date)
         if evt == "半仓止盈":
             trigger_price = event.get("trigger_price", trade.entry_price)
             fig.add_trace(
                 go.Scatter(
-                    x=[evt_date],
+                    x=[evt_x],
                     y=[trigger_price],
                     mode="markers+text",
                     marker=dict(symbol="diamond", color="orange", size=12),
@@ -395,7 +445,7 @@ def _add_trade_event_markers(fig: go.Figure, trade: TradeLifecycle) -> None:
         elif evt == "止损退出":
             fig.add_trace(
                 go.Scatter(
-                    x=[evt_date],
+                    x=[evt_x],
                     y=[trade.stop_loss_price],
                     mode="markers+text",
                     marker=dict(symbol="x", color="red", size=12),
@@ -799,12 +849,12 @@ def plot_structure_chart(
 
     # 4. Swing Highs 标注（红色圆点 + 文字"高"）
     if swing_highs:
-        sh_dates = [bars[idx].date for idx, _ in swing_highs]
+        sh_x = [idx for idx, _ in swing_highs]
         sh_prices = [high for _, high in swing_highs]
         sh_texts = [f"高 {high:.2f}" for _, high in swing_highs]
         fig.add_trace(
             go.Scatter(
-                x=sh_dates,
+                x=sh_x,
                 y=sh_prices,
                 mode="markers+text",
                 marker=dict(symbol="triangle-down", color="red", size=10),
@@ -820,12 +870,12 @@ def plot_structure_chart(
 
     # 5. Swing Lows 标注（绿色圆点 + 文字"低"）
     if swing_lows:
-        sl_dates = [bars[idx].date for idx, _ in swing_lows]
+        sl_x = [idx for idx, _ in swing_lows]
         sl_prices = [low for _, low in swing_lows]
         sl_texts = [f"低 {low:.2f}" for _, low in swing_lows]
         fig.add_trace(
             go.Scatter(
-                x=sl_dates,
+                x=sl_x,
                 y=sl_prices,
                 mode="markers+text",
                 marker=dict(symbol="triangle-up", color="green", size=10),
@@ -841,22 +891,21 @@ def plot_structure_chart(
 
     # 6. Higher Highs 连线（红色虚线）
     if swing_highs:
-        hh_dates: list[str] = []
+        hh_x: list[int] = []
         hh_prices: list[float] = []
         for i in range(1, len(swing_highs)):
             idx_i, high_i = swing_highs[i]
             _, high_prev = swing_highs[i - 1]
             if high_i > high_prev:
-                if not hh_dates:
-                    prev_idx = swing_highs[i - 1][0]
-                    hh_dates.append(bars[prev_idx].date)
+                if not hh_x:
+                    hh_x.append(swing_highs[i - 1][0])
                     hh_prices.append(high_prev)
-                hh_dates.append(bars[idx_i].date)
+                hh_x.append(idx_i)
                 hh_prices.append(high_i)
-        if len(hh_dates) >= 2:
+        if len(hh_x) >= 2:
             fig.add_trace(
                 go.Scatter(
-                    x=hh_dates,
+                    x=hh_x,
                     y=hh_prices,
                     mode="lines",
                     line=dict(color="red", width=2, dash="dash"),
@@ -869,22 +918,21 @@ def plot_structure_chart(
 
     # 7. Higher Lows 连线（绿色虚线）
     if swing_lows:
-        hl_dates: list[str] = []
+        hl_x: list[int] = []
         hl_prices: list[float] = []
         for i in range(1, len(swing_lows)):
             idx_i, low_i = swing_lows[i]
             _, low_prev = swing_lows[i - 1]
             if low_i > low_prev:
-                if not hl_dates:
-                    prev_idx = swing_lows[i - 1][0]
-                    hl_dates.append(bars[prev_idx].date)
+                if not hl_x:
+                    hl_x.append(swing_lows[i - 1][0])
                     hl_prices.append(low_prev)
-                hl_dates.append(bars[idx_i].date)
+                hl_x.append(idx_i)
                 hl_prices.append(low_i)
-        if len(hl_dates) >= 2:
+        if len(hl_x) >= 2:
             fig.add_trace(
                 go.Scatter(
-                    x=hl_dates,
+                    x=hl_x,
                     y=hl_prices,
                     mode="lines",
                     line=dict(color="green", width=2, dash="dash"),
@@ -897,10 +945,9 @@ def plot_structure_chart(
 
     # 8. Key Low 特别标注（大蓝色星号）
     if 0 <= key_low_idx < len(bars):
-        kl_date = bars[key_low_idx].date
         fig.add_trace(
             go.Scatter(
-                x=[kl_date],
+                x=[key_low_idx],
                 y=[key_low_val],
                 mode="markers+text",
                 marker=dict(symbol="star", color="blue", size=18),
