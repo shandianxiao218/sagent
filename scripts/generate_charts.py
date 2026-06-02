@@ -63,6 +63,9 @@ def _find_signal_idx(bars: list[DailyBar], signal_date: str) -> int | None:
 
 def main() -> None:
     result_path = ROOT / "backtest_engine_v1.json"
+    v2_path = ROOT / "backtest_engine_v2.json"
+    if v2_path.exists():
+        result_path = v2_path
     output_dir = ROOT / "charts"
     output_dir.mkdir(exist_ok=True)
 

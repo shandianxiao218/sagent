@@ -948,6 +948,16 @@ def run_engine_backtest(
             "avg_holding_days": portfolio_stats.avg_holding_days,
             "capital_utilization": portfolio_stats.capital_utilization,
             "nav_curve_count": len(portfolio_stats.nav_curve),
+            "nav_curve": [
+                {
+                    "date": nc.date,
+                    "cash": round(nc.cash, 2),
+                    "position_value": round(nc.position_value, 2),
+                    "total_value": round(nc.total_value, 2),
+                    "open_positions": nc.open_positions,
+                }
+                for nc in portfolio_stats.nav_curve
+            ],
         },
         "trades": engine_results,
     }
