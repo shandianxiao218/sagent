@@ -7,10 +7,25 @@ import fs from "node:fs";
 
 const execFileAsync = promisify(execFile);
 
+// Windows 上 Anaconda python 优先于系统 python（有 mootdx 等依赖）
+function getPythonCommand(): string {
+	if (process.platform !== "win32") return "python3";
+	const candidates = [
+		"D:\\ProgramData\\anaconda3\\python.exe",
+		"C:\\ProgramData\\anaconda3\\python.exe",
+		"C:\\Users\\Administrator\\anaconda3\\python.exe",
+	];
+	for (const p of candidates) {
+		if (fs.existsSync(p)) return p;
+	}
+	return "python";
+}
+const PYTHON = getPythonCommand();
+
 async function runPython(cwd: string, script: string, args: string[] = []) {
 	const scriptPath = path.join(cwd, "scripts", script);
 	const { stdout, stderr } = await execFileAsync(
-		"python",
+		PYTHON,
 		[scriptPath, ...args],
 		{
 			cwd,
@@ -109,7 +124,7 @@ export default function sagentExtension(pi: ExtensionAPI) {
 			const scriptPath = path.join(ctx.cwd, "scripts", "apply_decision.py");
 			const result = await new Promise<{ stdout: string; stderr: string }>(
 				(resolve, reject) => {
-					const child = spawn("python", [scriptPath, ...args], {
+					const child = spawn(PYTHON, [scriptPath, ...args], {
 						cwd: ctx.cwd,
 						windowsHide: true,
 					});
