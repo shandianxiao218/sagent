@@ -1,7 +1,7 @@
 {
   "version": 1,
   "projectRoot": "D:/suishi/sagent",
-  "generatedAt": "2026-06-01T22:45:20.833Z",
+  "generatedAt": "2026-06-02T00:11:41.804Z",
   "seq": 192,
   "files": {
     "D:/suishi/sagent/close_issues.py": {
@@ -283,6 +283,13 @@
       "size": 5033,
       "imports": [],
       "lastSeq": 0
+    },
+    "D:/suishi/sagent/scripts/generate_charts.py": {
+      "path": "D:/suishi/sagent/scripts/generate_charts.py",
+      "mtimeMs": 1780359064784.9995,
+      "size": 5395,
+      "imports": [],
+      "lastSeq": 0
     }
   },
   "symbols": {},
@@ -310,6 +317,7 @@
     "D:/suishi/sagent/scripts/apply_decision.py": [],
     "D:/suishi/sagent/scripts/find_real_cases.py": [],
     "D:/suishi/sagent/scripts/format_report.py": [],
+    "D:/suishi/sagent/scripts/generate_charts.py": [],
     "D:/suishi/sagent/scripts/market_scan.py": [],
     "D:/suishi/sagent/scripts/notify_feishu.py": [],
     "D:/suishi/sagent/scripts/portfolio.py": [],

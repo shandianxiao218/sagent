@@ -27,3 +27,5 @@ backtest_72_*.json
 
 tmp_*.py
 tmp_*.md
+
+charts/
