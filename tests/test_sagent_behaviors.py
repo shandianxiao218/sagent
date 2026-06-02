@@ -1020,10 +1020,10 @@ def _make_trade_bars(
 
 
 def test_simulate_trade_stop_loss_triggered():
-    """止损在 entry_price * 0.92 触发（当 key_low < entry_price * 0.92 时）。
+    """绝对止损10%触发（当 key_low*0.97 < entry_price*0.90 时）。
 
-    entry_price=100, key_low=90 → stop_loss_price = max(92, 90) = 92
-    买入后第 3 天 low=91 → 触发止损，以 92 卖出。
+    entry_price=100, key_low=90 → stop_loss_price = max(90, 90*0.97) = max(90, 87.3) = 90
+    买入后第 3 天 low=89 → 触发止损，以 90 卖出。
     """
     bars, signal_idx = _make_trade_bars(
         symbol="SL001",
@@ -1032,7 +1032,7 @@ def test_simulate_trade_stop_loss_triggered():
         post_entry_prices=[
             {"high": 102, "low": 99, "close": 100},  # day 1: 安全
             {"high": 101, "low": 98, "close": 99},  # day 2: 安全
-            {"high": 96, "low": 91, "close": 93},  # day 3: low=91 ≤ 92 → 止损
+            {"high": 96, "low": 89, "close": 93},  # day 3: low=89 ≤ 90 → 止损
             {"high": 100, "low": 97, "close": 99},  # day 4: 不会到这里
         ]
         + [{"high": 100, "low": 97, "close": 99}] * 16,
@@ -1041,9 +1041,9 @@ def test_simulate_trade_stop_loss_triggered():
     trade = simulate_trade(bars, signal_idx, max_holding=20)
 
     assert trade.exit_reason == "止损"
-    assert trade.exit_price == 92.0
-    assert trade.total_return == round((92.0 - 100.0) / 100.0, 4)
-    assert trade.total_return == -0.08
+    assert trade.exit_price == 90.0
+    assert trade.total_return == round((90.0 - 100.0) / 100.0, 4)
+    assert trade.total_return == -0.10
     assert trade.holding_days == 3
     assert trade.half_profit_locked is False
     # daily_events 中第 3 天应有止损退出事件
@@ -1051,10 +1051,10 @@ def test_simulate_trade_stop_loss_triggered():
 
 
 def test_simulate_trade_key_low_stop_loss():
-    """key_low 止损：当 key_low > entry_price * 0.92 时，止损价取 key_low。
+    """关键低点止损：当 key_low*0.97 > entry_price*0.90 时，止损价取 key_low*0.97。
 
-    entry_price=100, key_low=97 → stop_loss_price = max(92, 97) = 97
-    买入后某天 low=96 → 以 97 止损（不是以 92 止损）。
+    entry_price=100, key_low=97 → stop_loss_price = max(90, 97*0.97) = max(90, 94.09) = 94.09
+    买入后某天 low=93 → 以 94.09 止损。
     """
     bars, signal_idx = _make_trade_bars(
         symbol="KL001",
@@ -1063,26 +1063,28 @@ def test_simulate_trade_key_low_stop_loss():
         post_entry_prices=[
             {"high": 102, "low": 99, "close": 100},  # day 1: 安全
             {"high": 101, "low": 98, "close": 99},  # day 2: 安全
-            {"high": 99, "low": 96, "close": 97},  # day 3: low=96 ≤ 97 → 止损
+            {"high": 99, "low": 93, "close": 97},  # day 3: low=93 ≤ 94.09 → 止损
         ]
         + [{"high": 100, "low": 97, "close": 99}] * 17,
     )
 
     trade = simulate_trade(bars, signal_idx, max_holding=20)
 
+    expected_stop = round(97.0 * 0.97, 2)  # 94.09
     assert trade.exit_reason == "止损"
     assert trade.key_low == 97.0
-    assert trade.stop_loss_price == 97.0  # max(92, 97) = 97
-    assert trade.exit_price == 97.0
-    # 亏损 = (97 - 100) / 100 = -0.03
-    assert trade.total_return == -0.03
+    assert trade.stop_loss_price == expected_stop
+    assert trade.exit_price == expected_stop
+    # 亏损 = (94.09 - 100) / 100 = -0.0591
+    expected_return = round((expected_stop - 100.0) / 100.0, 4)
+    assert trade.total_return == expected_return
     assert trade.holding_days == 3
 
 
 def test_simulate_trade_half_profit_take():
     """半仓止盈触发：R >= 2.5 时记录半仓止盈。
 
-    entry=100, key_low=90 → r_denom=10
+    entry=100, key_low=90 → stop_loss=max(90, 87.3)=90 → r_denom=10
     买入后某天 high=130 → R=(130-100)/10=3.0 ≥ 2.5 → 半仓止盈。
     之后价格平稳，持有到期。
     """
@@ -1103,10 +1105,9 @@ def test_simulate_trade_half_profit_take():
 
     assert trade.half_profit_locked is True
     assert trade.half_profit_r >= 2.5
-    # R=3.0, 半仓锁定收益 = 3.0 * 10 / 100 = 0.30
+    # R=3.0, r_denom=100-90=10, 半仓锁定收益 = 3.0 * 10 / 100 = 0.30
     # 剩余半仓：持有到期，收益 = (125 - 100) / 100 = 0.25
     # 综合 = (0.30 + 0.25) / 2 = 0.275
-    # 但实际 exit_reason 应该是 "持有到期"（因为之后没触发趋势破坏）
     assert trade.exit_reason == "持有到期"
     assert trade.half_profit_r >= 2.5
     # 验证有半仓止盈事件
@@ -1114,12 +1115,12 @@ def test_simulate_trade_half_profit_take():
 
 
 def test_simulate_trade_full_lifecycle():
-    """完整生命周期：半仓止盈 → 趋势破坏退出。
+    """完整生命周期：半仓止盈 → 止损退出。
 
-    entry=100, key_low=96 → stop_loss_price = max(92, 96) = 96 = key_low
-    r_denom = entry - stop_loss = 100 - 96 = 4
-    第3天 high=130 → R=(130-100)/4=7.5 → 半仓止盈
-    第10天 low=95 → 跌破 stop_loss_price=96 → 止损退出（已半仓）
+    entry=100, key_low=96 → stop_loss_price = max(90, 96*0.97) = max(90, 93.12) = 93.12
+    r_denom = entry - stop_loss = 100 - 93.12 = 6.88
+    第3天 high=130 → R=(130-100)/6.88≈4.36 → 半仓止盈
+    第10天 low=92 → 跌破 stop_loss_price=93.12 → 止损退出（已半仓）
     """
     bars, signal_idx = _make_trade_bars(
         symbol="LC001",
@@ -1132,38 +1133,38 @@ def test_simulate_trade_full_lifecycle():
                 "high": 130,
                 "low": 120,
                 "close": 125,
-            },  # day 3: R=(130-100)/4=7.5 → 半仓止盈
+            },  # day 3: R≥2.5 → 半仓止盈
             {"high": 128, "low": 122, "close": 125},  # day 4
             {"high": 126, "low": 120, "close": 123},  # day 5
             {"high": 120, "low": 115, "close": 118},  # day 6
             {"high": 115, "low": 110, "close": 112},  # day 7
             {"high": 110, "low": 105, "close": 107},  # day 8
             {"high": 105, "low": 100, "close": 102},  # day 9
-            {"high": 98, "low": 95, "close": 96},  # day 10: low=95 ≤ 96 → 退出
+            {"high": 98, "low": 92, "close": 96},  # day 10: low=92 ≤ 93.12 → 退出
         ]
         + [{"high": 100, "low": 95, "close": 98}] * 10,
     )
 
     trade = simulate_trade(bars, signal_idx, max_holding=20)
 
+    expected_stop = round(max(100.0 * 0.90, 96.0 * 0.97), 2)  # 93.12
+
     assert trade.half_profit_locked is True
     assert trade.half_profit_r >= 2.5
     assert trade.holding_days == 10
-    # exit_reason: 止损（因为 daily_low <= stop_loss_price 先检查）
     assert trade.exit_reason == "止损"
-    assert trade.exit_price == 96.0  # stop_loss_price = key_low = 96
+    assert trade.exit_price == expected_stop
 
     # 综合收益计算（半仓止盈 + 止损）：
-    # 注意：R=2.5 实际在 day 2 触发（high=110 → R=(110-100)/4=2.5），而非 day 3
-    # half_profit_r = 2.5, r_denom = 4
-    # locked_return = 2.5 * 4 / 100 = 0.10
-    # 剩余半仓止损：(96 - 100) / 100 = -0.04
-    # 综合 = (0.10 + (-0.04)) / 2 = 0.03
-    assert trade.half_profit_r == 2.5
-    assert trade.total_return == round((0.10 + (-0.04)) / 2, 4)
-    assert trade.total_return == 0.03
+    r_denom = 100.0 - expected_stop  # 6.88
+    # day 2: high=110 → R=(110-100)/6.88≈1.45 < 2.5
+    # day 3: high=130 → R=(130-100)/6.88≈4.36 ≥ 2.5 → half_profit_r=4.36
+    half_r = round((130.0 - 100.0) / r_denom, 4)
+    locked_return = round(half_r * r_denom / 100.0, 4)  # 0.30
+    remain_return = round((expected_stop - 100.0) / 100.0, 4)
+    expected_total = round((locked_return + remain_return) / 2, 4)
+    assert trade.total_return == expected_total
 
-    # 验证事件序列包含半仓止盈
     events = [e.get("event") for e in trade.daily_events if e.get("event")]
     assert "半仓止盈" in events
 
@@ -1215,12 +1216,12 @@ def test_simulate_trade_hold_to_expiry():
 
 
 def test_simulate_trade_stop_loss_after_half_profit():
-    """半仓止盈后再止损（stop_loss_price > key_low 的场景）。
+    """半仓止盈后再止损。
 
-    entry=100, key_low=90 → stop_loss_price = max(92, 90) = 92
-    r_denom = 100 - 92 = 8
-    第3天 high=130 → R=(130-100)/8=3.75 → 半仓止盈（实际 R=2.5 在 day 2 触发）
-    第8天 low=91 → 跌破 stop_loss_price=92 → 止损退出
+    entry=100, key_low=90 → stop_loss_price = max(90, 87.3) = 90
+    r_denom = 100 - 90 = 10
+    第3天 high=130 → R=(130-100)/10=3.0 → 半仓止盈
+    第8天 low=89 → 跌破 stop_loss_price=90 → 止损退出
     """
     bars, signal_idx = _make_trade_bars(
         symbol="SLHP001",
@@ -1234,7 +1235,7 @@ def test_simulate_trade_stop_loss_after_half_profit():
             {"high": 120, "low": 115, "close": 118},  # day 5
             {"high": 110, "low": 105, "close": 107},  # day 6
             {"high": 100, "low": 96, "close": 98},  # day 7
-            {"high": 97, "low": 91, "close": 93},  # day 8: low=91 ≤ 92 → 止损
+            {"high": 97, "low": 89, "close": 93},  # day 8: low=89 ≤ 90 → 止损
         ]
         + [{"high": 100, "low": 97, "close": 99}] * 12,
     )
@@ -1245,17 +1246,17 @@ def test_simulate_trade_stop_loss_after_half_profit():
     assert trade.half_profit_locked is True
     assert trade.half_profit_r >= 2.5
     assert trade.holding_days == 8
-    assert trade.exit_price == 92.0  # stop_loss_price = max(92, 90) = 92
+    assert trade.exit_price == 90.0  # stop_loss_price = max(90, 87.3) = 90
 
     # 综合收益计算：
-    # r_denom = entry - stop_loss = 100 - 92 = 8
-    # day 2: high=115 → R=(115-100)/8=1.875 < 2.5
-    # day 3: high=130 → R=(130-100)/8=3.75 ≥ 2.5 → half_profit_r=3.75
-    # locked_return = 3.75 * 8 / 100 = 0.30
-    # 剩余半仓止损：(92 - 100) / 100 = -0.08
-    # 综合 = (0.30 + (-0.08)) / 2 = 0.11
-    expected_locked = round(3.75 * 8 / 100, 4)
-    expected_remain = round((92.0 - 100.0) / 100, 4)
+    # r_denom = 100 - 90 = 10
+    # day 2: high=115 → R=(115-100)/10=1.5 < 2.5
+    # day 3: high=130 → R=(130-100)/10=3.0 ≥ 2.5 → half_profit_r=3.0
+    # locked_return = 3.0 * 10 / 100 = 0.30
+    # 剩余半仓止损：(90 - 100) / 100 = -0.10
+    # 综合 = (0.30 + (-0.10)) / 2 = 0.10
+    expected_locked = round(3.0 * 10 / 100, 4)
+    expected_remain = round((90.0 - 100.0) / 100, 4)
     expected_total = round((expected_locked + expected_remain) / 2, 4)
     assert trade.total_return == expected_total
 
@@ -1265,7 +1266,7 @@ def test_run_backtest_engine_aggregation():
 
     验证 BacktestStats 的 count、rate、avg 计算正确。
     """
-    # 信号1：止损
+    # 信号1：止损 (entry=100, key_low=90, stop_loss=max(90,87.3)=90)
     bars_sl, idx_sl = _make_trade_bars(
         symbol="S1",
         entry_price=100.0,
@@ -1273,7 +1274,7 @@ def test_run_backtest_engine_aggregation():
         post_entry_prices=[
             {"high": 102, "low": 99, "close": 100},
             {"high": 101, "low": 98, "close": 99},
-            {"high": 96, "low": 91, "close": 93},  # low=91 ≤ 92 → 止损
+            {"high": 96, "low": 89, "close": 93},  # low=89 ≤ 90 → 止损
         ]
         + [{"high": 100, "low": 97, "close": 99}] * 17,
     )
@@ -1334,7 +1335,7 @@ def test_run_backtest_engine_aggregation():
     ne_trades = [t for t in stats.trades if t.exit_reason == "持有到期"]
 
     assert len(sl_trades) == 1
-    assert sl_trades[0].total_return == round((92.0 - 100.0) / 100.0, 4)
+    assert sl_trades[0].total_return == round((90.0 - 100.0) / 100.0, 4)  # -0.10
 
     assert len(ne_trades) == 2
     # S2 持有到期 close=106, S3 持有到期 close=103
@@ -1383,19 +1384,19 @@ def test_simulate_trade_nodata_exit():
 # ---------------------------------------------------------------------------
 
 
-def test_stop_loss_type_hard_8pct():
-    """硬性8%止损：key_low 距买入价很远（>8%），止损价=买入价×0.92。
+def test_stop_loss_type_absolute_10pct():
+    """绝对止损10%：key_low*0.97 < entry_price*0.90，止损价=买入价×0.90。
 
-    entry=100, key_low=85 → stop_loss = max(92, 85) = 92
-    触发止损时 stop_loss_type="硬性8%"
+    entry=100, key_low=85 → stop_loss = max(90, 85*0.97) = max(90, 82.45) = 90
+    触发止损时 stop_loss_type="绝对止损10%"
     """
     bars, signal_idx = _make_trade_bars(
-        symbol="HARD8P",
+        symbol="ABS10P",
         entry_price=100.0,
-        key_low_target=85.0,  # 距买入价 15%，stop_loss=92
+        key_low_target=85.0,  # 距买入价 15%，stop_loss=90
         post_entry_prices=[
             {"high": 102, "low": 99, "close": 100},  # day 1
-            {"high": 96, "low": 91, "close": 93},  # day 2: low=91 ≤ 92 → 止损
+            {"high": 96, "low": 89, "close": 93},  # day 2: low=89 ≤ 90 → 止损
         ]
         + [{"high": 100, "low": 97, "close": 99}] * 18,
     )
@@ -1403,90 +1404,92 @@ def test_stop_loss_type_hard_8pct():
     trade = simulate_trade(bars, signal_idx, max_holding=20)
 
     assert trade.exit_reason == "止损"
-    assert trade.stop_loss_price == 92.0
-    assert trade.stop_loss_type == "硬性8%"
+    assert trade.stop_loss_price == 90.0
+    assert trade.stop_loss_type == "绝对止损10%"
 
 
 def test_stop_loss_type_key_low():
-    """key_low 止损：key_low 距买入价很近（<8%），止损价=key_low。
+    """关键低点止损：key_low*0.97 > entry_price*0.90，止损价=key_low*0.97。
 
-    entry=100, key_low=97 → stop_loss = max(92, 97) = 97
-    触发止损时 stop_loss_type="key_low"
+    entry=100, key_low=97 → stop_loss = max(90, 97*0.97) = max(90, 94.09) = 94.09
+    触发止损时 stop_loss_type="关键低点"
     """
     bars, signal_idx = _make_trade_bars(
         symbol="KLTP",
         entry_price=100.0,
-        key_low_target=97.0,  # 距买入价 3%，stop_loss=97
+        key_low_target=97.0,  # stop_loss=94.09
         post_entry_prices=[
             {"high": 102, "low": 99, "close": 100},  # day 1
-            {"high": 99, "low": 96, "close": 97},  # day 2: low=96 ≤ 97 → 止损
+            {"high": 99, "low": 93, "close": 97},  # day 2: low=93 ≤ 94.09 → 止损
         ]
         + [{"high": 100, "low": 97, "close": 99}] * 18,
     )
 
     trade = simulate_trade(bars, signal_idx, max_holding=20)
 
+    expected_stop = round(97.0 * 0.97, 2)  # 94.09
     assert trade.exit_reason == "止损"
-    assert trade.stop_loss_price == 97.0
-    assert trade.stop_loss_type == "key_low"
+    assert trade.stop_loss_price == expected_stop
+    assert trade.stop_loss_type == "关键低点"
 
 
 def test_stop_loss_distance_pct():
     """止损距离百分比计算正确。
 
-    entry=100, stop_loss=92 → distance = -0.08
-    entry=100, key_low=97 → stop_loss=97 → distance = -0.03
+    entry=100, key_low=85 → stop_loss=max(90,82.45)=90 → distance = -0.10
+    entry=100, key_low=97 → stop_loss=max(90,94.09)=94.09 → distance ≈ -0.0591
     """
-    # 场景1: 硬性8%
+    # 场景1: 绝对止损10%
     bars1, idx1 = _make_trade_bars(
         symbol="D1",
         entry_price=100.0,
         key_low_target=85.0,
         post_entry_prices=[
-            {"high": 96, "low": 91, "close": 93},  # 止损
+            {"high": 96, "low": 89, "close": 93},  # 止损
         ]
         + [{"high": 100, "low": 97, "close": 99}] * 19,
     )
     trade1 = simulate_trade(bars1, idx1, max_holding=20)
-    assert trade1.stop_loss_distance_pct == -0.08
+    assert trade1.stop_loss_distance_pct == -0.10
 
-    # 场景2: key_low
+    # 场景2: 关键低点止损
     bars2, idx2 = _make_trade_bars(
         symbol="D2",
         entry_price=100.0,
         key_low_target=97.0,
         post_entry_prices=[
-            {"high": 99, "low": 96, "close": 97},  # 止损
+            {"high": 99, "low": 93, "close": 97},  # 止损
         ]
         + [{"high": 100, "low": 97, "close": 99}] * 19,
     )
     trade2 = simulate_trade(bars2, idx2, max_holding=20)
-    assert trade2.stop_loss_distance_pct == -0.03
+    expected_dist = round((round(97.0 * 0.97, 2) - 100.0) / 100.0, 4)
+    assert trade2.stop_loss_distance_pct == expected_dist
 
 
 def test_backtest_stats_stop_loss_breakdown():
-    """多信号中硬性/key_low止损统计正确。
+    """多信号中绝对止损/关键低点止损统计正确。
 
-    2个信号：1个硬性8%止损 + 1个key_low止损。
+    2个信号：1个绝对止损10% + 1个关键低点止损。
     """
-    # 信号1: 硬性8%止损 (key_low=85, stop_loss=92)
+    # 信号1: 绝对止损10% (key_low=85, stop_loss=90)
     bars1, idx1 = _make_trade_bars(
         symbol="SB1",
         entry_price=100.0,
         key_low_target=85.0,
         post_entry_prices=[
-            {"high": 96, "low": 91, "close": 93},  # 止损
+            {"high": 96, "low": 89, "close": 93},  # 止损
         ]
         + [{"high": 100, "low": 97, "close": 99}] * 19,
     )
 
-    # 信号2: key_low止损 (key_low=97, stop_loss=97)
+    # 信号2: 关键低点止损 (key_low=97, stop_loss=94.09)
     bars2, idx2 = _make_trade_bars(
         symbol="SB2",
         entry_price=100.0,
         key_low_target=97.0,
         post_entry_prices=[
-            {"high": 99, "low": 96, "close": 97},  # 止损
+            {"high": 99, "low": 93, "close": 97},  # 止损
         ]
         + [{"high": 100, "low": 97, "close": 99}] * 19,
     )
@@ -1499,32 +1502,31 @@ def test_backtest_stats_stop_loss_breakdown():
 
     stats = run_backtest_engine(bars_map, signals, max_holding=20)
 
+    expected_stop_s2 = round(97.0 * 0.97, 2)  # 94.09
+    expected_return_s2 = round((expected_stop_s2 - 100.0) / 100.0, 4)
+
     assert stats.total_trades == 2
     assert stats.stop_loss_count == 2
     assert stats.hard_stop_loss_count == 1
     assert stats.key_low_stop_loss_count == 1
     assert stats.hard_stop_loss_rate == 0.5
     assert stats.key_low_stop_loss_rate == 0.5
-    # 硬性止损: -8%, key_low止损: -3%
-    assert stats.avg_return_hard_stop_loss == -0.08
-    assert stats.avg_return_key_low_stop_loss == -0.03
+    # 绝对止损: -10%, 关键低点止损: ~-5.91%
+    assert stats.avg_return_hard_stop_loss == -0.10
+    assert stats.avg_return_key_low_stop_loss == expected_return_s2
 
 
 def test_oversized_stop_loss_warning():
-    """验证 oversized（止损距离>8%）场景在极端情况下触发。
+    """验证 oversized（止损距离>10%）场景：在当前逻辑下永远为 0。
 
-    entry=100, key_low=91 → stop_loss = max(92, 91) = 92, distance = -8% → 不 oversized
-    但如果 key_low=89 → stop_loss = max(92, 89) = 92, distance = -8% → 不 oversized
-    只有 key_low > entry*0.92 且 key_low < entry*0.92 时 → 不可能。
-    实际上 max(0.92*entry, key_low) ≥ 0.92*entry，所以 stop_loss_distance ≥ -0.08。
-    oversized 需要 stop_loss_distance_pct < -0.08，即 stop_loss < entry * 0.92 → 不可能。
-    所以在当前逻辑下 oversized_count 永远为 0。
+    stop_loss = max(entry*0.90, key_low*0.97) ≥ entry*0.90
+    所以 stop_loss_distance ≥ -0.10，oversized 需要 < -0.10，不可能触发。
     """
-    # 正常场景：所有 stop_loss_distance >= -0.05
+    # 正常场景：所有 stop_loss_distance >= -10%
     bars1, idx1 = _make_trade_bars(
         symbol="OS1",
         entry_price=100.0,
-        key_low_target=85.0,  # stop_loss=95, distance=-5%
+        key_low_target=85.0,  # stop_loss=90, distance=-10%
         post_entry_prices=[
             {"high": 102, "low": 99, "close": 100},
             {"high": 103, "low": 100, "close": 101},
@@ -1537,11 +1539,11 @@ def test_oversized_stop_loss_warning():
 
     stats = run_backtest_engine(bars_map, signals, max_holding=20)
 
-    # 正常场景：止损空间最多8%，不会 oversized
+    # 止损空间最多10%，不会 oversized
     assert stats.oversized_stop_loss_count == 0
     # 验证 distance 在合理范围
     for t in stats.trades:
-        assert t.stop_loss_distance_pct >= -0.08
+        assert t.stop_loss_distance_pct >= -0.10
 
 
 # ---------------------------------------------------------------------------
@@ -1553,7 +1555,7 @@ def test_half_profit_buy_and_hold_comparison():
     """验证 buy_and_hold_return 字段存在，且与策略收益不同。
 
     构造一个触发半仓止盈后又止损的场景：
-    entry=100, key_low=90 → stop_loss=92, r_denom=100-92=8
+    entry=100, key_low=90 → stop_loss=max(90,87.3)=90, r_denom=100-90=10
     半仓止盈后止损 → 策略收益 ≠ 全程持有收益。
     """
     bars, signal_idx = _make_trade_bars(
@@ -1568,7 +1570,7 @@ def test_half_profit_buy_and_hold_comparison():
             {"high": 120, "low": 115, "close": 118},  # day 5
             {"high": 110, "low": 105, "close": 107},  # day 6
             {"high": 100, "low": 96, "close": 98},  # day 7
-            {"high": 97, "low": 91, "close": 93},  # day 8: low=91 ≤ 92 → 止损
+            {"high": 97, "low": 89, "close": 93},  # day 8: low=89 ≤ 90 → 止损
         ]
         + [{"high": 100, "low": 97, "close": 99}] * 12,
     )
@@ -1578,8 +1580,8 @@ def test_half_profit_buy_and_hold_comparison():
     # 策略触发半仓止盈后止损
     assert trade.half_profit_locked is True
     assert trade.exit_reason == "止损"
-    # 计算综合收益
-    assert trade.total_return > 0  # 半仓止盈锁定了利润
+    # 计算综合收益（半仓止盈锁定利润）
+    assert trade.total_return > 0
 
     # buy_and_hold_return 存在，且不等于策略收益
     assert hasattr(trade, "buy_and_hold_return")
@@ -1902,7 +1904,9 @@ def test_risk_reward_ratio_calculation():
     desc = describe_stock("RR001", bars)
 
     # 验证盈亏比计算逻辑
-    risk = desc.fields["current"] - desc.fields["key_low"]
+    # risk = current - stop_loss_price (not key_low)
+    stop_loss = round(max(desc.fields["current"] * 0.90, desc.fields["key_low"] * 0.97), 2)
+    risk = desc.fields["current"] - stop_loss
     assert desc.fields["risk"] == round(risk, 2)
 
     expected_2_5r = desc.fields["current"] + 2.5 * risk
@@ -2221,6 +2225,10 @@ def test_simulate_trade_populates_trend_break_ref():
         or trade.trend_break_ref >= trade.key_low
     )
 
+    # stop_loss_price should use new formula: max(entry*0.90, key_low*0.97)
+    expected_stop = round(max(trade.entry_price * 0.90, trade.key_low * 0.97), 2)
+    assert trade.stop_loss_price == expected_stop
+
 
 def test_simulate_trade_trend_break_uses_ref_not_key_low():
     """当 trend_break_ref > key_low 时，半仓止盈后用 trend_break_ref 退出。
@@ -2479,10 +2487,10 @@ def test_portfolio_stop_loss_releases_capital():
         key_low_target=90.0,
         signal_date="2026-03-01",
         post_prices=[
-            # 需要触发止损：low <= stop_loss = max(100*0.95, 90) = 95
+            # 止损价 = max(100*0.90, 90*0.97) = max(90, 87.3) = 90
             {"high": 101, "low": 99, "close": 100},  # day 1: safe
             {"high": 100, "low": 98, "close": 99},  # day 2: safe
-            {"high": 96, "low": 94, "close": 95},  # day 3: low=94 <= 95 → stop loss
+            {"high": 96, "low": 89, "close": 95},  # day 3: low=89 <= 90 → stop loss
         ]
         + [{"high": 100, "low": 97, "close": 99}] * 22,
     )

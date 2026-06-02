@@ -234,7 +234,9 @@ def describe_stock(
     breakout = current >= max(closes[-8:])
     pullback_ratio = (recent_high - key_low) / recent_high if recent_high else 0
     # 盈亏比计算
-    risk = current - key_low
+    # 止损价 = max(entry*0.90, key_low*0.97)，描述中用 key_low*0.97 作为结构止损参考
+    stop_loss_price = round(max(current * 0.90, key_low * 0.97), 2)
+    risk = current - stop_loss_price
     r_ratio = (recent_high - current) / risk if risk > 0 else 0.0
     target_2_5r = current + 2.5 * risk
     target_3r = current + 3.0 * risk
@@ -247,8 +249,8 @@ def describe_stock(
         f"趋势上，前期形成明显上升波段，近期从阶段高点 {recent_high:.2f} 回调至候选关键低点 {key_low:.2f}；"
         f"回调幅度约 {pullback_ratio:.1%}，近几日开始回升并{'尝试突破' if breakout else '尚未突破'}短期回调趋势；"
         f"成交量为近10日均量的 {volume_ratio:.2f} 倍，需关注突破是否放量确认；"
-        f"风险位置为买点前关键低点 {key_low:.2f}（{key_low_source}），跌破则形态无效；"
-        f"当前风险 {risk:.2f} 元，盈亏比 R=2.5 价位 {target_2_5r:.2f}、R=3 价位 {target_3r:.2f}，止损价 {key_low:.2f}。"
+        f"止损价 {stop_loss_price:.2f}（绝对止损10%={current * 0.90:.2f}，关键低点下方3%={key_low * 0.97:.2f}，取较高者）；"
+        f"当前风险 {risk:.2f} 元，盈亏比 R=2.5 价位 {target_2_5r:.2f}、R=3 价位 {target_3r:.2f}。"
         f"{pullback_desc}"
     )
     if len(text) > max_chars:
@@ -257,7 +259,7 @@ def describe_stock(
         symbol=symbol,
         text=text,
         key_low=round(key_low, 2),
-        risk_price=round(key_low, 2),
+        risk_price=round(stop_loss_price, 2),
         fields={
             "current": current,
             "ma20": round(ma20, 2),
@@ -271,5 +273,6 @@ def describe_stock(
             "r_ratio": round(r_ratio, 2),
             "target_2_5r": round(target_2_5r, 2),
             "target_3r": round(target_3r, 2),
+            "stop_loss_price": stop_loss_price,
         },
     )

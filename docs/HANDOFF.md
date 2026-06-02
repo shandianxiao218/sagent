@@ -1,4 +1,4 @@
-# Sagent Handoff Document — 2026-06-02 (Session 2)
+# Sagent Handoff Document — 2026-06-02 (Session 3)
 
 **Repo**: `D:\suishi\sagent` · remote `shandianxiao218/sagent` · branch `master`
 **Tests**: 73 passing · **Python**: Anaconda `D:\ProgramData\anaconda3`
@@ -79,8 +79,8 @@
 ## Key Design Decisions
 
 1. **实时扫描不做预过滤** — AKShare `stock_info_a_code_name()` 只返回 code/name，缺少 avg_amount_20d/is_st/listing_days，所以改为获取 K 线后运行时过滤（ST → 成交额 → K线长度），和回测脚本 `run_backtest_period.py` 同一模式
-2. **Stop-loss formula**: `max(entry×0.92, key_low)` — key_low is the primary structural stop; 8% is the maximum acceptable risk per trade
-3. **R-value denominator**: `entry - stop_loss_price` (the actual risk taken)
+2. **Stop-loss formula**: `max(entry×0.90, key_low×0.97)` — absolute stop at 10%; structural stop is key_low buffered by 3% below; take the higher (tighter) of the two
+3. **R-value denominator**: `entry - stop_loss_price` (the actual risk taken, based on new stop-loss formula)
 4. **行业归属**：实时扫描用 AKShare `stock_individual_info_em` 逐只查询（较慢但可用），后续应改为申万二级分类缓存
 
 ---
@@ -91,10 +91,7 @@
 1. **行业归属优化** — 当前逐只调用 AKShare 查行业太慢，应：
    - 用申万二级分类一次获取全市场行业映射
    - 缓存到本地 JSON，每日更新一次
-2. **Reduce stop-loss rate further (still 62%)** — consider:
-   - ATR-based stop instead of fixed key_low
-   - Require key_low distance ≥ 3% below entry (use `min_sl_distance=0.03`)
-   - Trend quality filter (only buy when higher-lows sequence is clear)
+2. **~~Reduce stop-loss rate further~~** → 已完成：止损策略从 `max(entry×0.92, key_low)` 改为 `max(entry×0.90, key_low×0.97)`，绝对止损放宽到10%，key_low 下方留3%缓冲
 3. **Replace rule-engine LLM mock with real LLM API** — expected precision ~83% vs current rule-engine ~40%
 
 ### Medium Priority

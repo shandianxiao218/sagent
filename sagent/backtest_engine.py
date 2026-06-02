@@ -24,7 +24,7 @@ class TradeLifecycle:
     signal_date: str  # 信号日
     entry_price: float  # 买入价（信号日收盘价）
     key_low: float  # 关键低点
-    stop_loss_price: float  # 止损价 = max(entry_price * 0.92, key_low)，取更紧的那个
+    stop_loss_price: float  # 止损价 = max(entry_price * 0.90, key_low * 0.97)
 
     # 退出信息
     exit_date: str | None  # 退出日期（None=未退出）
@@ -42,7 +42,7 @@ class TradeLifecycle:
     max_r: float = 0.0  # 持仓期间最大盈亏比
 
     # 止损类型追踪 (#26)
-    stop_loss_type: str = ""  # "硬性8%" | "key_low" | ""（未止损时为空）
+    stop_loss_type: str = ""  # "绝对止损10%" | "关键低点" | ""（未止损时为空）
     stop_loss_distance_pct: float = 0.0  # 止损价距买入价的百分比距离（负数）
 
     # 全程持有对比 (#27)
@@ -79,13 +79,13 @@ class BacktestStats:
     trades: list[TradeLifecycle]
 
     # 止损类型分组统计 (#26)
-    hard_stop_loss_count: int = 0  # 硬性8%止损次数
-    key_low_stop_loss_count: int = 0  # key_low止损次数
-    hard_stop_loss_rate: float = 0.0  # 硬性止损率
-    key_low_stop_loss_rate: float = 0.0  # key_low止损率
-    avg_return_hard_stop_loss: float = 0.0  # 硬性止损组平均收益
-    avg_return_key_low_stop_loss: float = 0.0  # key_low止损组平均收益
-    oversized_stop_loss_count: int = 0  # 止损空间>8%的交易数
+    hard_stop_loss_count: int = 0  # 绝对止损10%次数
+    key_low_stop_loss_count: int = 0  # 关键低点止损次数
+    hard_stop_loss_rate: float = 0.0  # 绝对止损率
+    key_low_stop_loss_rate: float = 0.0  # 关键低点止损率
+    avg_return_hard_stop_loss: float = 0.0  # 绝对止损组平均收益
+    avg_return_key_low_stop_loss: float = 0.0  # 关键低点止损组平均收益
+    oversized_stop_loss_count: int = 0  # 止损空间>10%的交易数
 
     # 半仓止盈统计 (#27)
     half_profit_triggered_count: int = (
@@ -137,7 +137,7 @@ def simulate_trade(
 
     # 计算 key_low、止损价和趋势破坏参考位
     key_low, key_low_idx = find_key_low_for_signal(bars, signal_idx)
-    stop_loss_price = round(max(entry_price * 0.92, key_low), 2)
+    stop_loss_price = round(max(entry_price * 0.90, key_low * 0.97), 2)
     r_denom = entry_price - stop_loss_price  # 盈亏比分母（基于实际止损价）
 
     # 计算趋势破坏参考位 (#28)
@@ -238,13 +238,14 @@ def simulate_trade(
             daily_events[-1]["event"] = "持有到期退出"
             daily_events[-1]["exit_price"] = exit_price
 
-    # 判断止损类型 (#26)
-    hard_stop_threshold = round(entry_price * 0.92, 2)
+    # 判断止损类型
+    absolute_stop_threshold = round(entry_price * 0.90, 2)
+    keylow_stop_threshold = round(key_low * 0.97, 2)
     if exit_reason == "止损":
-        if exit_price == hard_stop_threshold and hard_stop_threshold > key_low:
-            stop_loss_type = "硬性8%"
+        if exit_price == absolute_stop_threshold and absolute_stop_threshold > keylow_stop_threshold:
+            stop_loss_type = "绝对止损10%"
         else:
-            stop_loss_type = "key_low"
+            stop_loss_type = "关键低点"
     else:
         stop_loss_type = ""
 
@@ -368,9 +369,9 @@ def run_backtest_engine(
     win_count = sum(1 for r in all_returns if r > 0)
 
     # 止损类型分组统计 (#26)
-    hard_sl = [t for t in trades if t.stop_loss_type == "硬性8%"]
-    key_low_sl = [t for t in trades if t.stop_loss_type == "key_low"]
-    oversized = [t for t in trades if t.stop_loss_distance_pct < -0.08]
+    hard_sl = [t for t in trades if t.stop_loss_type == "绝对止损10%"]
+    key_low_sl = [t for t in trades if t.stop_loss_type == "关键低点"]
+    oversized = [t for t in trades if t.stop_loss_distance_pct < -0.10]
 
     # 半仓止盈统计 (#27)
     half_triggered = [t for t in trades if t.half_profit_locked]
