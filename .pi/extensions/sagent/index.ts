@@ -3,6 +3,7 @@ import { Type } from "typebox";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import path from "node:path";
+import fs from "node:fs";
 
 const execFileAsync = promisify(execFile);
 
@@ -53,31 +54,22 @@ export default function sagentExtension(pi: ExtensionAPI) {
 	});
 
 	// ── Tool: prepare_scan ──────────────────────────────────────
-	// Python 量化粗筛，输出结构化数据供 pi agent 判断
+	// Python 量化粗筛，使用 mootdx + AKShare 真实行情数据
+	// 输出结构化 JSON 供 pi agent 做 LLM 判断
 	pi.registerTool({
 		name: "prepare_scan",
 		label: "Prepare Scan Data",
 		description:
-			"执行 sagent 量化粗筛：股票池过滤 → 技术候选 → K 线描述 → 板块验证 → 持仓监控。不做 LLM 判断，输出结构化 JSON 供你分析。",
+			"执行 sagent 量化粗筛（真实行情）：股票池过滤 → 技术候选 → K 线描述 → 板块验证 → 持仓监控。不做 LLM 判断，输出结构化 JSON 供你分析。",
 		promptSnippet: "准备 sagent 扫描数据，获取候选股和板块验证结果。",
 		promptGuidelines: [
 			"prepare_scan 输出的 candidates 包含 K 线描述和量化指标，你需要用 a-share-main-trend skill 对每个候选做判断。",
 			"sectors 中 needs_llm=true 的板块需要你做 LLM 判断（主线/弱主线/非主线）。",
 			"使用 prepare_scan 的输出时，必须提醒用户不构成投资建议。",
 		],
-		parameters: Type.Object({
-			fixture: Type.Optional(
-				Type.String({
-					description: "本地 fixture 文件路径（默认使用 sample_market.json）",
-				}),
-			),
-		}),
-		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			const fixture = params.fixture ?? "fixtures/market/sample_market.json";
-			const result = await runPython(ctx.cwd, "prepare_scan.py", [
-				"--fixture",
-				fixture,
-			]);
+		parameters: Type.Object({}),
+		async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
+			const result = await runPython(ctx.cwd, "prepare_scan.py", []);
 			return {
 				content: [{ type: "text", text: result.stdout }],
 				details: { stderr: result.stderr, data: parseJson(result.stdout) },
@@ -170,17 +162,16 @@ export default function sagentExtension(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "analyze_stock",
 		label: "Analyze Stock",
-		description: "生成单只股票的 K 线自然语言描述。",
+		description: "生成单只股票的 K 线自然语言描述（使用真实行情数据）。",
 		promptSnippet: "把个股 K 线转成自然语言描述，供你判断形态。",
 		parameters: Type.Object({
 			symbol: Type.String({ description: "股票代码，例如 000001" }),
-			fixture: Type.Optional(Type.String({ description: "fixture 文件路径" })),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			const args = ["--symbol", params.symbol];
-			if (params.fixture) args.push("--fixture", params.fixture);
-			else args.push("--mock");
-			const result = await runPython(ctx.cwd, "analyze_stock.py", args);
+			const result = await runPython(ctx.cwd, "analyze_stock.py", [
+				"--symbol",
+				params.symbol,
+			]);
 			return {
 				content: [{ type: "text", text: result.stdout }],
 				details: { stderr: result.stderr, data: parseJson(result.stdout) },
@@ -221,19 +212,16 @@ export default function sagentExtension(pi: ExtensionAPI) {
 	});
 
 	// ── Command: /scan ──────────────────────────────────────────
-	// pi agent 主导的完整扫描流程
+	// pi agent 主导的完整扫描流程（真实行情）
 	pi.registerCommand("scan", {
 		description:
-			"执行 sagent 每日扫描：量化粗筛 → LLM 判断 → 写入持仓 → 飞书推送",
+			"执行 sagent 每日扫描（真实行情）：量化粗筛 → LLM 判断 → 写入持仓 → 飞书推送",
 		handler: async (_args, ctx) => {
-			ctx.ui.notify("sagent /scan 开始：正在准备数据...", "info");
+			ctx.ui.notify("sagent /scan 开始：正在连接通达信获取真实行情...", "info");
 
 			try {
-				// Step 1: 量化粗筛
-				const prepareResult = await runPython(ctx.cwd, "prepare_scan.py", [
-					"--fixture",
-					"fixtures/market/sample_market.json",
-				]);
+				// Step 1: 量化粗筛（真实数据）
+				const prepareResult = await runPython(ctx.cwd, "prepare_scan.py", []);
 				const data = parseJson(prepareResult.stdout);
 
 				// Step 2: 把结构化数据发给 pi agent，让 pi 用自身模型做判断
