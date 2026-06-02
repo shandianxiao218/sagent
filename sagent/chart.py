@@ -14,9 +14,57 @@ from .backtest_portfolio import PortfolioStats
 from .models import ChartAnnotation, ChartHLine, ChartRange, DailyBar
 
 
+def _limit_up_pct(symbol: str) -> float:
+    """根据股票代码判断涨停幅度。"""
+    code = symbol.lstrip("0")  # 去前导零不影响判断
+    # 科创板 688xxx → 20%
+    if symbol.startswith("688"):
+        return 0.20
+    # 创业板 300xxx → 20%
+    if symbol.startswith("300"):
+        return 0.20
+    # 北交所 8xxxxx / 4xxxxx → 30%
+    if symbol.startswith("8") or symbol.startswith("4"):
+        return 0.30
+    # 主板（含ST）默认 10%，ST 另外由调用方处理
+    return 0.10
+
+
+def _classify_bars(bars: list[DailyBar], symbol: str = "") -> tuple:
+    """将 bars 分为三组：涨停/阳线/阴线，返回 (limit_up, bullish, bearish)。
+
+    每组是与 bars 等长的列表，非该组的元素为 None。
+    """
+    n = len(bars)
+    limit_pct = _limit_up_pct(symbol)
+
+    # 用于各组的数据
+    lu_o, lu_h, lu_l, lu_c = [None]*n, [None]*n, [None]*n, [None]*n
+    bu_o, bu_h, bu_l, bu_c = [None]*n, [None]*n, [None]*n, [None]*n
+    be_o, be_h, be_l, be_c = [None]*n, [None]*n, [None]*n, [None]*n
+
+    prev_close = bars[0].close  # 第一根没有前收，用自身 close
+    for i, bar in enumerate(bars):
+        if i > 0:
+            prev_close = bars[i - 1].close
+        chg = (bar.close - prev_close) / prev_close if prev_close > 0 else 0
+
+        if bar.close >= bar.open:  # 阳线
+            # 涨停判断：收盘涨幅 >= 涨停幅度 - 0.5%（容差）
+            if chg >= limit_pct - 0.005 and i > 0:
+                lu_o[i], lu_h[i], lu_l[i], lu_c[i] = bar.open, bar.high, bar.low, bar.close
+            else:
+                bu_o[i], bu_h[i], bu_l[i], bu_c[i] = bar.open, bar.high, bar.low, bar.close
+        else:  # 阴线
+            be_o[i], be_h[i], be_l[i], be_c[i] = bar.open, bar.high, bar.low, bar.close
+
+    return (lu_o, lu_h, lu_l, lu_c), (bu_o, bu_h, bu_l, bu_c), (be_o, be_h, be_l, be_c)
+
+
 def plot_stock_kline(
     bars: list[DailyBar],
     title: str = "",
+    symbol: str = "",
     annotations: list[ChartAnnotation] | None = None,
     hlines: list[ChartHLine] | None = None,
     highlight_ranges: list[ChartRange] | None = None,
@@ -27,9 +75,18 @@ def plot_stock_kline(
 ) -> go.Figure:
     """绘制 K 线图（蜡烛图 + 成交量 + 标注层）。
 
+    蜡烛图风格（中国股市惯例）：
+    - 涨停：红色实心
+    - 阳线（收>开）：红色空心（红边白心）
+    - 阴线（收<开）：绿色实心
+
+    涨停幅度根据板块自动判断：
+    - 主板 10%，创业板/科创板 20%，北交所 30%
+
     Args:
         bars: 日 K 线数据。
         title: 图表标题。
+        symbol: 股票代码（用于判断板块涨停幅度）。
         annotations: 点标注列表（买卖点、关键低点等）。
         hlines: 水平参考线列表（止损线、key_low 线等）。
         highlight_ranges: 区间高亮列表（持仓区间、回调区间等）。
@@ -63,39 +120,102 @@ def plot_stock_kline(
     lows = [bar.low for bar in bars]
     closes = [bar.close for bar in bars]
     volumes = [bar.volume for bar in bars]
+    amounts = [bar.amount for bar in bars]
 
     # 用整数索引作为 x 轴，去除非交易日间隔
     x_idx = list(range(len(bars)))
 
-    # 蜡烛图 — 红涨绿跌
+    # 计算涨幅用于 hover
+    prev_closes = [closes[0]] + closes[:-1]
+    changes = [
+        (c - p) / p * 100 if p > 0 else 0
+        for c, p in zip(closes, prev_closes)
+    ]
+
+    # 构建 hover 文本（日期、OHLC、涨幅、成交量）
+    hover_texts = [
+        f"{dates[i]}<br>"
+        f"开 {opens[i]:.2f}  高 {highs[i]:.2f}<br>"
+        f"低 {lows[i]:.2f}  收 {closes[i]:.2f}<br>"
+        f"涨幅 {changes[i]:+.2f}%<br>"
+        f"成交量 {volumes[i]:,.0f}"
+        for i in range(len(bars))
+    ]
+
+    # ── 蜡烛图：涨停实心红 / 阳线空心红 / 阴线实心绿 ──
+    lu, bu, be = _classify_bars(bars, symbol)
+
+    # 1. 涨停 — 红色实心
     fig.add_trace(
         go.Candlestick(
-            x=x_idx,
-            open=opens,
-            high=highs,
-            low=lows,
-            close=closes,
-            increasing_line_color="red",
-            decreasing_line_color="green",
-            name="K线",
+            x=x_idx, open=lu[0], high=lu[1], low=lu[2], close=lu[3],
+            increasing_line_color="red", increasing_fillcolor="red",
+            decreasing_line_color="red", decreasing_fillcolor="red",
+            text=hover_texts, hoverinfo="text",
+            name="涨停",
+            showlegend=False,
         ),
-        row=1,
-        col=1,
+        row=1, col=1,
     )
 
-    # 成交量柱状图
+    # 2. 阳线 — 红色空心（红边白心）
+    fig.add_trace(
+        go.Candlestick(
+            x=x_idx, open=bu[0], high=bu[1], low=bu[2], close=bu[3],
+            increasing_line_color="red", increasing_fillcolor="white",
+            decreasing_line_color="red", decreasing_fillcolor="white",
+            text=hover_texts, hoverinfo="text",
+            name="阳线",
+            showlegend=False,
+        ),
+        row=1, col=1,
+    )
+
+    # 3. 阴线 — 绿色实心
+    fig.add_trace(
+        go.Candlestick(
+            x=x_idx, open=be[0], high=be[1], low=be[2], close=be[3],
+            increasing_line_color="green", increasing_fillcolor="green",
+            decreasing_line_color="green", decreasing_fillcolor="green",
+            text=hover_texts, hoverinfo="text",
+            name="阴线",
+            showlegend=False,
+        ),
+        row=1, col=1,
+    )
+
+    # 成交量柱状图（涨停=红色，阳线=红色，阴线=绿色）
     if show_volume:
-        vol_colors = ["red" if c >= o else "green" for c, o in zip(closes, opens)]
+        vol_colors = []
+        for i, bar in enumerate(bars):
+            if bar.close < bar.open:
+                vol_colors.append("green")
+            else:
+                vol_colors.append("red")
+        # 涨停日加深红色
+        for i, bar in enumerate(bars):
+            if i > 0:
+                prev_close = bars[i - 1].close
+                limit_pct = _limit_up_pct(symbol)
+                chg = (bar.close - prev_close) / prev_close if prev_close > 0 else 0
+                if chg >= limit_pct - 0.005 and bar.close >= bar.open:
+                    vol_colors[i] = "#CC0000"  # 深红
+
+        vol_hover = [
+            f"{dates[i]}<br>成交量 {volumes[i]:,.0f}<br>成交额 {amounts[i]:,.0f}"
+            for i in range(len(bars))
+        ]
         fig.add_trace(
             go.Bar(
                 x=x_idx,
                 y=volumes,
                 marker_color=vol_colors,
+                text=vol_hover,
+                hoverinfo="text",
                 name="成交量",
                 showlegend=False,
             ),
-            row=2,
-            col=1,
+            row=2, col=1,
         )
 
     # 构建日期→索引映射（用于标注定位）
@@ -121,8 +241,7 @@ def plot_stock_kline(
                     name=ann.text,
                     showlegend=False,
                 ),
-                row=1,
-                col=1,
+                row=1, col=1,
             )
 
     # 水平参考线
@@ -135,8 +254,7 @@ def plot_stock_kline(
                 line_width=hl.width,
                 annotation_text=hl.label,
                 annotation_position="top left",
-                row=1,
-                col=1,
+                row=1, col=1,
             )
 
     # 区间高亮
@@ -145,18 +263,16 @@ def plot_stock_kline(
             x0 = date_to_idx.get(hr.start_date, hr.start_date)
             x1 = date_to_idx.get(hr.end_date, hr.end_date)
             fig.add_vrect(
-                x0=x0,
-                x1=x1,
+                x0=x0, x1=x1,
                 fillcolor=hr.color,
                 layer="below",
                 line_width=0,
                 annotation_text=hr.label,
                 annotation_position="top left",
-                row=1,
-                col=1,
+                row=1, col=1,
             )
 
-    # 布局
+    # ── 布局 ──
     fig.update_layout(
         title=title,
         width=width,
@@ -164,6 +280,24 @@ def plot_stock_kline(
         xaxis_rangeslider_visible=False,
         template="plotly_white",
         showlegend=True,
+        # 十字光标贯穿整个图表
+        hovermode="x unified",
+        xaxis=dict(
+            showspikes=True,
+            spikemode="across",
+            spikesnap="cursor",
+            spikedash="dot",
+            spikecolor="gray",
+            spikethickness=1,
+        ),
+        yaxis=dict(
+            showspikes=True,
+            spikemode="across",
+            spikesnap="cursor",
+            spikedash="dot",
+            spikecolor="gray",
+            spikethickness=1,
+        ),
     )
 
     # X轴：用日期标签替换数字索引，去除非交易日间隙
@@ -174,16 +308,14 @@ def plot_stock_kline(
         tickvals=tick_vals,
         ticktext=tick_text,
         tickangle=45,
-        row=1,
-        col=1,
+        row=1, col=1,
     )
     if show_volume:
         fig.update_xaxes(
             tickvals=tick_vals,
             ticktext=tick_text,
             tickangle=45,
-            row=2,
-            col=1,
+            row=2, col=1,
         )
 
     fig.update_yaxes(title_text="价格", row=1, col=1)
@@ -382,7 +514,9 @@ def plot_trade_lifecycle(
     return fig
 
 
-def _add_trade_event_markers(fig: go.Figure, trade: TradeLifecycle, date_to_idx: dict[str, int] | None = None) -> None:
+def _add_trade_event_markers(
+    fig: go.Figure, trade: TradeLifecycle, date_to_idx: dict[str, int] | None = None
+) -> None:
     """在 K 线图上添加退出点和事件标注。"""
     if date_to_idx is None:
         date_to_idx = {}

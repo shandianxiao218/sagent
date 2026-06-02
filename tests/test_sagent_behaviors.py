@@ -2672,7 +2672,7 @@ def test_chart_annotations_and_hlines():
     assert isinstance(fig, go.Figure)
     # 蜡烛图 + 成交量 + 2个标注点 = 4 traces
     # hlines 和 vrect 不算 trace（它们是 shape/annotation）
-    assert len(fig.data) == 4  # 1 candlestick + 1 bar + 2 scatter
+    assert len(fig.data) == 6  # 3 candlestick (limit_up/bullish/bearish) + 1 bar + 2 scatter
 
 
 def test_chart_export_html(tmp_path):
