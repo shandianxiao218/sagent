@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""从回测结果生成可视化图表。"""
+"""从回测结果生成全部4种可视化图表。
+
+图表类型：
+  1. signal_{code}_{date}.html  — 信号标注图（K线+止损/key_low/R=2.5+回调区间）
+  2. structure_{code}_{date}.html — 波峰波谷结构图（swing highs/lows + higher lows连线）
+  3. lifecycle_{code}_{date}.html — 交易生命周期图（K线+买卖标注 + 逐日R值曲线）
+  4. portfolio_dashboard.html   — 组合仪表盘（净值+月度收益+交易分布+统计卡片）
+"""
 
 from __future__ import annotations
 
@@ -12,7 +19,13 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from sagent.backtest_portfolio import DailyNAV, PortfolioStats
-from sagent.chart import plot_portfolio_dashboard, plot_signal_chart
+from sagent.chart import (
+    plot_portfolio_dashboard,
+    plot_signal_chart,
+    plot_structure_chart,
+    plot_trade_lifecycle,
+)
+from sagent.backtest_engine import simulate_trade
 from sagent.models import DailyBar
 
 
@@ -41,6 +54,13 @@ def fetch_bars(symbol: str, offset: int = 370) -> list[DailyBar]:
     return bars
 
 
+def _find_signal_idx(bars: list[DailyBar], signal_date: str) -> int | None:
+    for j, bar in enumerate(bars):
+        if bar.date == signal_date:
+            return j
+    return None
+
+
 def main() -> None:
     result_path = ROOT / "backtest_engine_v1.json"
     output_dir = ROOT / "charts"
@@ -56,9 +76,9 @@ def main() -> None:
     trades = data.get("trades", [])
     print(f"共 {len(trades)} 笔交易")
 
-    # 获取需要的股票K线（去重）
+    # ── 1. 获取K线 ──────────────────────────────────────────
     symbols = list({t["symbol"] for t in trades})
-    print(f"需要获取 {len(symbols)} 只股票的K线: {symbols}")
+    print(f"\n[1/5] 获取 {len(symbols)} 只股票K线...")
 
     bars_map: dict[str, list[DailyBar]] = {}
     for sym in symbols:
@@ -66,59 +86,108 @@ def main() -> None:
             bars_map[sym] = fetch_bars(sym)
             print(f"  {sym}: {len(bars_map[sym])} bars")
         except Exception as e:
-            print(f"  {sym}: 获取失败 - {e}")
+            print(f"  {sym}: 失败 - {e}")
 
-    # 生成每笔交易的信号标注图
-    chart_count = 0
+    # ── 2. 信号标注图 + 波峰波谷结构图 ────────────────────────
+    print(f"\n[2/5] 生成信号标注图 + 波峰波谷结构图...")
+    signal_count = 0
+
     for trade in trades:
         sym = trade["symbol"]
         bars = bars_map.get(sym, [])
         if not bars:
-            print(f"  跳过 {sym}（无K线）")
             continue
 
         signal_date = trade.get("signal_date", "")
-        signal_idx = None
-        for j, bar in enumerate(bars):
-            if bar.date == signal_date:
-                signal_idx = j
-                break
-
+        signal_idx = _find_signal_idx(bars, signal_date)
         if signal_idx is None:
-            print(f"  跳过 {sym}（未找到信号日 {signal_date}）")
             continue
 
-        # 截取信号日前后的 bars（前120日到后30日）
+        # 截取信号日前后的 bars
         start = max(0, signal_idx - 120)
         end = min(len(bars), signal_idx + 30)
         chart_bars = bars[start:end]
         chart_signal_idx = signal_idx - start
 
-        safe_name = sym.replace(".", "_")
-        date_safe = signal_date.replace("-", "")
-        out_path = output_dir / f"signal_{safe_name}_{date_safe}.html"
+        safe = sym.replace(".", "_")
+        dsafe = signal_date.replace("-", "")
 
+        # 信号标注图
+        out1 = output_dir / f"signal_{safe}_{dsafe}.html"
         plot_signal_chart(
             bars=chart_bars,
             signal_idx=chart_signal_idx,
-            symbol=f"{sym} {trade.get('signal_date', '')}",
+            symbol=f"{sym} {signal_date}",
             key_low=trade.get("key_low"),
             stop_loss_price=trade.get("stop_loss_price"),
             entry_price=trade.get("entry_price"),
-            output_path=str(out_path),
+            output_path=str(out1),
         )
-        chart_count += 1
-        print(f"  [{chart_count}] {sym} {signal_date} -> {out_path.name}")
 
-    # 生成组合仪表盘
-    portfolio_data = data.get("portfolio", {})
-    nav_curve_raw = portfolio_data.get("nav_curve", [])
-    if not nav_curve_raw and portfolio_data.get("nav_curve_count", 0) > 0:
-        print(
-            "\n注意: nav_curve 数据未序列化到 JSON（只有 nav_curve_count），仪表盘将显示空状态"
+        # 波峰波谷结构图
+        out2 = output_dir / f"structure_{safe}_{dsafe}.html"
+        plot_structure_chart(
+            bars=chart_bars,
+            signal_idx=chart_signal_idx,
+            symbol=f"{sym} {signal_date}",
+            output_path=str(out2),
         )
-        print("建议: 在 run_engine_backtest() 中将 nav_curve 序列化到输出")
-    nav_curve = [DailyNAV(**n) for n in nav_curve_raw] if nav_curve_raw else []
+
+        signal_count += 1
+        print(f"  [{signal_count}] {sym} {signal_date}")
+
+    # ── 3. 交易生命周期图（K线+R值曲线）──────────────────────
+    print(f"\n[3/5] 生成交易生命周期图...")
+    lifecycle_count = 0
+
+    for trade in trades:
+        sym = trade["symbol"]
+        bars = bars_map.get(sym, [])
+        if not bars:
+            continue
+
+        signal_date = trade.get("signal_date", "")
+        signal_idx = _find_signal_idx(bars, signal_date)
+        if signal_idx is None:
+            continue
+
+        # 用引擎重新模拟获取 TradeLifecycle（含逐日事件）
+        lifecycle = simulate_trade(bars, signal_idx)
+
+        safe = sym.replace(".", "_")
+        dsafe = signal_date.replace("-", "")
+
+        out3 = output_dir / f"lifecycle_{safe}_{dsafe}.html"
+        plot_trade_lifecycle(
+            bars=bars,
+            trade=lifecycle,
+            output_path=str(out3),
+        )
+        lifecycle_count += 1
+        print(f"  [{lifecycle_count}] {sym} {signal_date} | "
+              f"退出={lifecycle.exit_reason} Rmax={lifecycle.max_r:.1f}")
+
+    # ── 4. 组合仪表盘 ───────────────────────────────────────
+    print(f"\n[4/5] 生成组合仪表盘...")
+    portfolio_data = data.get("portfolio", {})
+
+    # 尝试恢复 nav_curve
+    nav_curve_raw = portfolio_data.get("nav_curve", [])
+    if nav_curve_raw:
+        nav_curve = [
+            DailyNAV(
+                date=n["date"],
+                cash=n["cash"],
+                position_value=n["position_value"],
+                total_value=n["total_value"],
+                open_positions=n["open_positions"],
+            )
+            for n in nav_curve_raw
+        ]
+    else:
+        # nav_curve 未序列化，用交易数据模拟一条简单净值曲线
+        nav_curve = _build_simulated_nav(trades)
+        print(f"  nav_curve 未序列化，用 {len(nav_curve)} 个交易日模拟")
 
     stats = PortfolioStats(
         initial_cash=portfolio_data.get("initial_cash", 100000),
@@ -145,10 +214,77 @@ def main() -> None:
 
     dashboard_path = output_dir / "portfolio_dashboard.html"
     plot_portfolio_dashboard(stats, output_path=str(dashboard_path))
-    print(f"\n组合仪表盘 -> {dashboard_path}")
+    print(f"  组合仪表盘 -> {dashboard_path}")
 
-    print(f"\n=== 完成：共生成 {chart_count + 1} 个图表文件 ===")
-    print(f"输出目录: {output_dir}")
+    # ── 5. 汇总 ─────────────────────────────────────────────
+    total = signal_count * 2 + lifecycle_count + 1  # signal + structure + lifecycle + dashboard
+    print(f"\n[5/5] === 完成 ===")
+    print(f"  信号标注图:   {signal_count} 个")
+    print(f"  波峰波谷图:   {signal_count} 个")
+    print(f"  生命周期图:   {lifecycle_count} 个")
+    print(f"  组合仪表盘:   1 个")
+    print(f"  总计:         {total} 个 HTML 文件")
+    print(f"  输出目录:     {output_dir}")
+
+
+def _build_simulated_nav(trades: list[dict]) -> list[DailyNAV]:
+    """当 nav_curve 未序列化时，用交易数据模拟一条简化净值曲线。"""
+    if not trades:
+        return []
+
+    initial = 100000.0
+    cash = initial
+    open_positions: list[dict] = []
+    daily_nav: list[DailyNAV] = []
+    sorted_trades = sorted(trades, key=lambda t: t.get("signal_date", ""))
+
+    # 收集所有相关日期
+    all_dates = set()
+    for t in sorted_trades:
+        all_dates.add(t.get("signal_date", ""))
+        if t.get("exit_date"):
+            all_dates.add(t["exit_date"])
+    all_dates = sorted(all_dates)
+
+    for date in all_dates:
+        # 开仓
+        for t in sorted_trades:
+            if t.get("signal_date") == date:
+                entry = t.get("entry_price", 0)
+                amount = round(initial * 0.1, 2)
+                qty = int(amount // entry) if entry > 0 else 0
+                if qty > 0:
+                    cash -= qty * entry
+                    open_positions.append({
+                        "symbol": t["symbol"],
+                        "entry": entry,
+                        "qty": qty,
+                        "open_date": date,
+                    })
+
+        # 平仓
+        for pos in list(open_positions):
+            for t in sorted_trades:
+                if (t.get("symbol") == pos["symbol"]
+                        and t.get("signal_date") == pos["open_date"]
+                        and t.get("exit_date") == date):
+                    exit_price = t.get("exit_price", t.get("entry_price", 0))
+                    cash += pos["qty"] * exit_price
+                    open_positions.remove(pos)
+
+        # 计算持仓市值（简化：用 entry_price 估算）
+        pos_value = sum(p["qty"] * p["entry"] for p in open_positions)
+        total_value = cash + pos_value
+
+        daily_nav.append(DailyNAV(
+            date=date,
+            cash=round(cash, 2),
+            position_value=round(pos_value, 2),
+            total_value=round(total_value, 2),
+            open_positions=len(open_positions),
+        ))
+
+    return daily_nav
 
 
 if __name__ == "__main__":
