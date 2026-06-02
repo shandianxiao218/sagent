@@ -1,6 +1,6 @@
 {
-  "signature": "scripts/check_nav.py::Unresolved from this turn — scripts/check_nav.py:\n🔴 STOP — 3 issue(s) must be fixed:\n  L1: Import block is un-sorted or un-formatted\n  L2: Use a context manager for opening files\n  L2: Unnecessary mode argument\n\nℹ️ Advisory — no action required this turn:\nCode-quality warnings introduced/touched this turn: 1 across 1 file(s).\nTop rules: python-thread-global-write×1\nDetails written to .pi-lens/cache/code-quality-warnings.json\nNo action required unless you are already refactoring these areas.",
+  "signature": "AGENTS.md::ℹ️ Advisory — no action required this turn:\nCode-quality warnings introduced/touched this turn: 1 across 1 file(s).\nTop rules: pi-lens×1\nDetails written to .pi-lens/cache/code-quality-warnings.json\nNo action required unless you are already refactoring these areas.",
   "sessionId": "lens-mpv9ucis-a1abbf31",
-  "projectSeqStart": 235,
-  "projectSeqEnd": 236
+  "projectSeqStart": 239,
+  "projectSeqEnd": 240
 }

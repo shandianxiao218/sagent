@@ -1,4 +1,5 @@
 """分析回测止损率问题的诊断脚本。"""
+
 import json
 
 with open("backtest_engine_v1.json", "r", encoding="utf-8") as f:
@@ -41,16 +42,20 @@ for i, t in enumerate(trades):
 
     flag = "*" if total_ret > 0 else "x"
     print(
-        f"  [{i+1:2d}] {flag} {t.get('symbol',''):6s} {t.get('signal_date','')} "
+        f"  [{i + 1:2d}] {flag} {t.get('symbol', ''):6s} {t.get('signal_date', '')} "
         f"entry={entry:.2f} exit={exit_price:.2f} SL={sl:.2f}({sl_dist:.1f}%) "
         f"type={sl_type} exit={exit_reason} ret={total_ret:+.2f}% "
         f"Rmax={max_r:.1f} days={holding_days}"
     )
 
 print(f"\n=== 止损距离统计 ===")
-print(f"  止损触发: {sl_triggered}/{len(trades)} ({sl_triggered/len(trades)*100:.1f}%)")
+print(
+    f"  止损触发: {sl_triggered}/{len(trades)} ({sl_triggered / len(trades) * 100:.1f}%)"
+)
 print(f"  半仓止盈: {half_profit_cnt}")
-print(f"  SL距离: min={min(sl_dists):.1f}% max={max(sl_dists):.1f}% avg={sum(sl_dists)/len(sl_dists):.1f}%")
+print(
+    f"  SL距离: min={min(sl_dists):.1f}% max={max(sl_dists):.1f}% avg={sum(sl_dists) / len(sl_dists):.1f}%"
+)
 
 # 盈亏分组
 wins = [t for t in trades if t.get("total_return", 0) > 0]
@@ -58,10 +63,14 @@ losses = [t for t in trades if t.get("total_return", 0) <= 0]
 print(f"\n=== 盈亏分析 ===")
 print(f"  盈利: {len(wins)} 笔")
 for t in wins:
-    print(f"    {t.get('symbol','')} {t.get('signal_date','')} ret={t.get('total_return',0):+.2f}% Rmax={t.get('max_r',0):.1f} half={t.get('half_profit_locked',False)}")
+    print(
+        f"    {t.get('symbol', '')} {t.get('signal_date', '')} ret={t.get('total_return', 0):+.2f}% Rmax={t.get('max_r', 0):.1f} half={t.get('half_profit_locked', False)}"
+    )
 print(f"  亏损: {len(losses)} 笔")
 for t in losses:
-    print(f"    {t.get('symbol','')} {t.get('signal_date','')} ret={t.get('total_return',0):+.2f}% exit={t.get('exit_reason','')} SL_dist={((t['entry_price']-t['stop_loss_price'])/t['entry_price']*100):.1f}%")
+    print(
+        f"    {t.get('symbol', '')} {t.get('signal_date', '')} ret={t.get('total_return', 0):+.2f}% exit={t.get('exit_reason', '')} SL_dist={((t['entry_price'] - t['stop_loss_price']) / t['entry_price'] * 100):.1f}%"
+    )
 
 # 模拟过滤效果
 print(f"\n=== 模拟止损距离过滤效果 ===")
@@ -77,8 +86,8 @@ for min_sl_dist in [3.0, 3.5, 4.0, 4.5, 5.0]:
     half_cnt = sum(1 for t, _ in filtered if t.get("half_profit_locked", False))
     print(
         f"  SL>={min_sl_dist}%: {len(filtered)} 笔, "
-        f"止损率 {stopped_cnt/len(filtered)*100:.1f}%, "
+        f"止损率 {stopped_cnt / len(filtered) * 100:.1f}%, "
         f"平均收益 {avg_ret:+.2f}%, "
-        f"胜率 {win_cnt/len(filtered)*100:.1f}%, "
+        f"胜率 {win_cnt / len(filtered) * 100:.1f}%, "
         f"半仓止盈 {half_cnt}"
     )

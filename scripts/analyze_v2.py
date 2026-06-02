@@ -1,4 +1,5 @@
 """分析 V2 回测结果（8%止损上限）。"""
+
 import json
 
 with open("backtest_engine_v2.json", "r", encoding="utf-8") as f:
@@ -42,21 +43,21 @@ for i, t in enumerate(trades):
 
     flag = "+" if ret_pct > 0 else "-"
     print(
-        f"  [{i+1:2d}] {flag} {t.get('symbol',''):6s} {t.get('signal_date','')} "
+        f"  [{i + 1:2d}] {flag} {t.get('symbol', ''):6s} {t.get('signal_date', '')} "
         f"entry={entry:.2f} SL={sl:.2f}({sl_dist:.1f}%) KL={kl:.2f}({kl_dist:.1f}%) "
-        f"exit={exit_r} ret={ret_pct:+.2f}% Rmax={t.get('max_r',0):.1f} "
+        f"exit={exit_r} ret={ret_pct:+.2f}% Rmax={t.get('max_r', 0):.1f} "
         f"half={'Y' if t.get('half_profit_locked') else 'N'}"
     )
 
 total = len(trades)
 wins = sum(1 for r in returns if r > 0)
 print(f"\n=== 汇总 ===")
-print(f"  止损: {sl_cnt}/{total} ({sl_cnt/total*100:.1f}%)")
+print(f"  止损: {sl_cnt}/{total} ({sl_cnt / total * 100:.1f}%)")
 print(f"  趋势破坏: {tp_cnt}/{total}")
 print(f"  持有到期: {hold_cnt}/{total}")
 print(f"  半仓止盈: {half_cnt}/{total}")
-print(f"  胜率: {wins}/{total} ({wins/total*100:.1f}%)")
-print(f"  平均收益: {sum(returns)/len(returns):+.2f}%")
+print(f"  胜率: {wins}/{total} ({wins / total * 100:.1f}%)")
+print(f"  平均收益: {sum(returns) / len(returns):+.2f}%")
 if returns:
     pos = [r for r in returns if r > 0]
     neg = [r for r in returns if r < 0]
@@ -65,7 +66,7 @@ if returns:
     print(f"  平均盈利: {avg_win:+.2f}% ({len(pos)} 笔)")
     print(f"  平均亏损: {avg_loss:+.2f}% ({len(neg)} 笔)")
     if avg_loss != 0:
-        print(f"  盈亏比: {abs(avg_win/avg_loss):.2f}")
+        print(f"  盈亏比: {abs(avg_win / avg_loss):.2f}")
 
 print(f"\n=== 组合级统计 ===")
 for k, v in portfolio.items():

@@ -9,6 +9,13 @@
 - 保证本地和远程始终同步，避免 stash 或未推送的积压。
 - 提交信息使用中文，格式：`feat: / fix: / docs: 描述`。
 
+## Handoff 规则
+
+- handoff 文档统一保存到 `docs/HANDOFF.md`（覆盖更新），**不要**保存到系统临时目录。
+- 每次会话结束时如果有实质性进展，更新 `docs/HANDOFF.md`。
+- handoff 内容应包含：本次改动摘要、架构决策、测试状态、待办事项。
+- handoff 文档属于项目持久化资产，随 git 提交推送。
+
 ## Agent skills
 
 ### Issue tracker

@@ -1,15 +1,38 @@
 {
-  "generatedAt": "2026-06-02T04:56:27.012Z",
+  "generatedAt": "2026-06-02T08:40:04.917Z",
   "scope": "turn_delta",
   "sessionId": "lens-mpv9ucis-a1abbf31",
-  "turnIndex": 289,
-  "projectSeqStart": 236,
-  "projectSeqEnd": 236,
+  "turnIndex": 304,
+  "projectSeqStart": 239,
+  "projectSeqEnd": 240,
   "deltaOnly": true,
-  "files": [],
+  "files": [
+    {
+      "filePath": "D:\\suishi\\sagent\\AGENTS.md",
+      "displayPath": "AGENTS.md",
+      "fileSeq": 2,
+      "warnings": [
+        {
+          "id": "cq:868feb6f60",
+          "filePath": "D:\\suishi\\sagent\\AGENTS.md",
+          "displayPath": "AGENTS.md",
+          "severity": "warning",
+          "tool": "pi-lens",
+          "message": "Pi-lens analysis unavailable. Tools for markdown not installed.",
+          "category": "other",
+          "origin": "dispatch"
+        }
+      ]
+    }
+  ],
   "summary": {
-    "warnings": 0,
-    "files": 0,
-    "topRules": []
+    "warnings": 1,
+    "files": 1,
+    "topRules": [
+      {
+        "rule": "pi-lens",
+        "count": 1
+      }
+    ]
   }
 }
