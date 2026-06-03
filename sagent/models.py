@@ -42,6 +42,8 @@ class SectorSnapshot:
     pct_chg: float
     limit_up_count: int
     strong_stocks: list[str]
+    up_count: int = 0
+    down_count: int = 0
 
 
 @dataclass(frozen=True)

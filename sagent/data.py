@@ -151,6 +151,8 @@ class AStockDataMarketData:
                     pct_chg=float(item.get("change_pct", 0)),
                     limit_up_count=int(item.get("limit_up_count", 0)),
                     strong_stocks=item.get("leading_stocks", []),
+                    up_count=int(item.get("up_count", 0)),
+                    down_count=int(item.get("down_count", 0)),
                 )
             )
         return snapshots
@@ -165,17 +167,72 @@ class AStockDataMarketData:
 def _http_session():
     """创建绕过系统代理的 HTTP session。"""
     import requests
+
     s = requests.Session()
     s.trust_env = False  # 绕过 Windows 系统代理
     return s
+
+
+def _ths_sector_ranking(top_n: int = 100) -> dict:
+    """同花顺行业板块涨跌排名（HTML 直出，零鉴权，~50 行业）。
+
+    优先级高于东财 push2，因为更稳定。
+    解析 https://q.10jqka.com.cn/thshy/ 页面表格。
+    """
+    import re
+
+    s = _http_session()
+    url = "https://q.10jqka.com.cn/thshy/"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Referer": "https://q.10jqka.com.cn/",
+    }
+    try:
+        r = s.get(url, headers=headers, timeout=10)
+    except Exception:
+        return {"top": [], "bottom": [], "total": 0}
+
+    # 提取表格数据
+    table_match = re.findall(
+        r'<table[^>]*class="m-table[^">]*"[^>]*>(.*?)</table>',
+        r.text, re.DOTALL,
+    )
+    if not table_match:
+        return {"top": [], "bottom": [], "total": 0}
+
+    rows_raw = re.findall(r'<tr[^>]*>(.*?)</tr>', table_match[0], re.DOTALL)
+    rows = []
+    for row_html in rows_raw:
+        cells = re.findall(r'<td[^>]*>(.*?)</td>', row_html, re.DOTALL)
+        clean = [re.sub(r'<[^>]+>', '', c).strip() for c in cells]
+        if len(clean) >= 10 and clean[0].isdigit():
+            rows.append({
+                "rank": int(clean[0]),
+                "name": clean[1],
+                "change_pct": float(clean[2]),
+                "up_count": int(clean[6]) if clean[6].isdigit() else 0,
+                "down_count": int(clean[7]) if clean[7].isdigit() else 0,
+                "turnover": float(clean[5]) if clean[5] else 0,
+                "leader": clean[9],
+            })
+
+    return {
+        "top": rows[:top_n],
+        "bottom": rows[-top_n:] if len(rows) > top_n else rows,
+        "total": len(rows),
+    }
 
 
 def _default_industry_comparison(top_n: int = 20) -> dict:
     """东财 push2 行业板块涨跌排名（零鉴权，~100 行业）。"""
     url = "https://push2.eastmoney.com/api/qt/clist/get"
     params = {
-        "pn": "1", "pz": "100", "po": "1", "np": "1",
-        "fltt": "2", "invt": "2",
+        "pn": "1",
+        "pz": "100",
+        "po": "1",
+        "np": "1",
+        "fltt": "2",
+        "invt": "2",
         "fs": "m:90+t:2",
         "fields": "f2,f3,f4,f12,f13,f14,f104,f105,f128,f136,f140,f141,f207",
     }
@@ -248,7 +305,16 @@ def _default_concept_blocks(code: str) -> dict:
 
 
 def _make_industry_comparison():
-    """工厂：先尝试东财 HTTP，不通则回退 mootdx TCP sector_cache。"""
+    """工厂：优先同花顺 HTML，回退东财 push2，最终 mootdx TCP。"""
+    # 先尝试同花顺（最稳定，零鉴权 HTML）
+    try:
+        result = _ths_sector_ranking(5)
+        if result["total"] > 0:
+            return _ths_sector_ranking
+    except Exception:
+        pass
+
+    # 回退东财 push2
     try:
         s = _http_session()
         r = s.get(
@@ -275,7 +341,10 @@ def _make_concept_blocks():
         r = s.get(
             "https://gushitong.baidu.com/stock/ab",
             params={"code": "000001"},
-            headers={"User-Agent": "Mozilla/5.0", "Referer": "https://gushitong.baidu.com/"},
+            headers={
+                "User-Agent": "Mozilla/5.0",
+                "Referer": "https://gushitong.baidu.com/",
+            },
             timeout=5,
         )
         if r.status_code == 200:

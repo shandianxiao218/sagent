@@ -1,6 +1,6 @@
 {
-  "signature": "scripts/debug_probe.py::Unresolved from this turn — scripts/debug_probe.py:\n🔴 STOP — 1 issue(s) must be fixed:\n  L2: Import block is un-sorted or un-formatted\n\nℹ️ Advisory — no action required this turn:\nCode-quality warnings introduced/touched this turn: 4 across 1 file(s).\nTop rules: python-thread-global-write×4\nDetails written to .pi-lens/cache/code-quality-warnings.json\nNo action required unless you are already refactoring these areas.",
+  "signature": "sagent/data.py::Unresolved from this turn — sagent/data.py:\n🔴 STOP — 1 issue(s) must be fixed:\n  L361: Import block is un-sorted or un-formatted",
   "sessionId": "lens-mpx9sn7w-fa1fa846",
-  "projectSeqStart": 420,
-  "projectSeqEnd": 421
+  "projectSeqStart": 450,
+  "projectSeqEnd": 451
 }
