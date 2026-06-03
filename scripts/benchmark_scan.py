@@ -182,6 +182,7 @@ def main() -> None:
     # 缓存路径
     cache_path = ROOT / "data" / "benchmark_bars.db"
     from sagent.cache import LocalBarCache
+
     cache = LocalBarCache(cache_path)
 
     results: list[dict] = []
@@ -203,12 +204,14 @@ def main() -> None:
     bars_map = cache.bulk_daily_bars(symbols)
     t_load = time.perf_counter() - t0
     print(f"  → 加载 {len(bars_map)} 只股票 ({t_load:.2f}s)", file=sys.stderr)
-    results.append({
-        "phase": "cache_bulk_load",
-        "stock_count": len(symbols),
-        "loaded": len(bars_map),
-        "elapsed_sec": round(t_load, 2),
-    })
+    results.append(
+        {
+            "phase": "cache_bulk_load",
+            "stock_count": len(symbols),
+            "loaded": len(bars_map),
+            "elapsed_sec": round(t_load, 2),
+        }
+    )
 
     # Phase 4: 缓存扫描
     r = bench_cache_scan(bars_map, len(symbols))
@@ -224,7 +227,9 @@ def main() -> None:
     if not args.skip_direct:
         r = bench_direct_scan(data, sample_stocks)
         results.append(r)
-        print(f"  → {r['elapsed_sec']}s, {r['stocks_per_sec']} stocks/s", file=sys.stderr)
+        print(
+            f"  → {r['elapsed_sec']}s, {r['stocks_per_sec']} stocks/s", file=sys.stderr
+        )
 
     # 缓存统计
     cache_stats = cache.stats()
@@ -242,16 +247,26 @@ def main() -> None:
     if results:
         cache_scan = next((r for r in results if r["phase"] == "cache_scan"), None)
         direct_scan = next((r for r in results if r["phase"] == "direct_scan"), None)
-        incremental = next((r for r in results if r["phase"] == "cache_incremental"), None)
+        incremental = next(
+            (r for r in results if r["phase"] == "cache_incremental"), None
+        )
 
         total_stocks = 5500  # 全 A 股约 5500 只
         if cache_scan and cache_scan["elapsed_sec"] > 0:
             ratio = total_stocks / len(sample_stocks)
             summary["estimated_full_scan"] = {
                 "cache_scan_sec": round(cache_scan["elapsed_sec"] * ratio, 1),
-                "direct_scan_sec": round(direct_scan["elapsed_sec"] * ratio, 1) if direct_scan else None,
-                "incremental_update_sec": round(incremental["elapsed_sec"] * ratio, 1) if incremental else None,
-                "speedup": round(direct_scan["elapsed_sec"] / cache_scan["elapsed_sec"], 1) if direct_scan and cache_scan["elapsed_sec"] > 0 else None,
+                "direct_scan_sec": round(direct_scan["elapsed_sec"] * ratio, 1)
+                if direct_scan
+                else None,
+                "incremental_update_sec": round(incremental["elapsed_sec"] * ratio, 1)
+                if incremental
+                else None,
+                "speedup": round(
+                    direct_scan["elapsed_sec"] / cache_scan["elapsed_sec"], 1
+                )
+                if direct_scan and cache_scan["elapsed_sec"] > 0
+                else None,
             }
 
     print("\n" + json.dumps(summary, ensure_ascii=False, indent=2))

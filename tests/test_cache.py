@@ -15,7 +15,7 @@ def _make_frame(n: int = 5, symbol: str = "000001") -> pd.DataFrame:
     """构造模拟 mootdx 返回的 DataFrame。"""
     return pd.DataFrame(
         {
-            "datetime": [f"2026-01-{i+10:02d}" for i in range(n)],
+            "datetime": [f"2026-01-{i + 10:02d}" for i in range(n)],
             "open": [10.0 + i for i in range(n)],
             "high": [11.0 + i for i in range(n)],
             "low": [9.0 + i for i in range(n)],
@@ -138,7 +138,16 @@ def test_cache_insert_or_ignore_no_duplicates(tmp_path: Path):
             "INSERT OR IGNORE INTO daily_bars "
             "(symbol, date, open, high, low, close, volume, amount) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (bar.symbol, bar.date, bar.open, bar.high, bar.low, bar.close, bar.volume, bar.amount),
+            (
+                bar.symbol,
+                bar.date,
+                bar.open,
+                bar.high,
+                bar.low,
+                bar.close,
+                bar.volume,
+                bar.amount,
+            ),
         )
     conn.commit()
 
@@ -159,7 +168,7 @@ def test_bulk_daily_bars(tmp_path: Path):
                 "INSERT OR IGNORE INTO daily_bars "
                 "(symbol, date, open, high, low, close, volume, amount) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (sym, f"2026-01-{10+day}", 10.0, 11.0, 9.0, 10.5, 1000, 10000),
+                (sym, f"2026-01-{10 + day}", 10.0, 11.0, 9.0, 10.5, 1000, 10000),
             )
     conn.commit()
 

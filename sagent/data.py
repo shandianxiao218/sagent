@@ -75,6 +75,7 @@ class AStockDataMarketData:
         使用向量化解析替代 iterrows，速度提升约 5x。
         """
         from .cache import _parse_bars
+
         frame = self.mootdx.bars(symbol=symbol, category=category, offset=offset)
         return _parse_bars(symbol, frame)
 

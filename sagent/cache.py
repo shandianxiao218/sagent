@@ -10,6 +10,7 @@
     cache.ensure_symbols(["000001", "600036", ...])  # 增量补缺
     bars = cache.daily_bars("000001")                 # 读本地
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -27,6 +28,7 @@ class MootdxLike(Protocol):
 # 快速 DataFrame → list[DailyBar] 解析（无 iterrows）
 # ---------------------------------------------------------------------------
 
+
 def _parse_bars(symbol: str, frame: object) -> list[DailyBar]:
     """将 mootdx 返回的 DataFrame 解析为 DailyBar 列表（向量化）。"""
     if frame is None:
@@ -35,7 +37,11 @@ def _parse_bars(symbol: str, frame: object) -> list[DailyBar]:
 
     if isinstance(frame, pd.DataFrame) and not frame.empty:
         n = len(frame)
-        date_col = frame["datetime"] if "datetime" in frame.columns else frame.index.to_series().astype(str)
+        date_col = (
+            frame["datetime"]
+            if "datetime" in frame.columns
+            else frame.index.to_series().astype(str)
+        )
         dates = date_col.values  # numpy array of str
         opens = frame["open"].values
         highs = frame["high"].values
@@ -48,16 +54,18 @@ def _parse_bars(symbol: str, frame: object) -> list[DailyBar]:
         for i in range(n):
             d = str(dates[i])
             date_str = d[:10] if len(d) >= 10 else d
-            bars.append(DailyBar(
-                symbol=symbol,
-                date=date_str,
-                open=float(opens[i]),
-                high=float(highs[i]),
-                low=float(lows[i]),
-                close=float(closes[i]),
-                volume=float(vols[i]),
-                amount=float(amounts[i]),
-            ))
+            bars.append(
+                DailyBar(
+                    symbol=symbol,
+                    date=date_str,
+                    open=float(opens[i]),
+                    high=float(highs[i]),
+                    low=float(lows[i]),
+                    close=float(closes[i]),
+                    volume=float(vols[i]),
+                    amount=float(amounts[i]),
+                )
+            )
         return bars
     return []
 
@@ -104,8 +112,12 @@ class LocalBarCache:
 
     def _ensure_table(self) -> None:
         conn = self._get_conn()
-        conn.execute("CREATE TABLE IF NOT EXISTS daily_bars (symbol TEXT NOT NULL, date TEXT NOT NULL, open REAL NOT NULL, high REAL NOT NULL, low REAL NOT NULL, close REAL NOT NULL, volume REAL NOT NULL, amount REAL NOT NULL, PRIMARY KEY (symbol, date))")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_bars_symbol_date ON daily_bars (symbol, date)")
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS daily_bars (symbol TEXT NOT NULL, date TEXT NOT NULL, open REAL NOT NULL, high REAL NOT NULL, low REAL NOT NULL, close REAL NOT NULL, volume REAL NOT NULL, amount REAL NOT NULL, PRIMARY KEY (symbol, date))"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_bars_symbol_date ON daily_bars (symbol, date)"
+        )
         conn.commit()
 
     def _get_conn(self) -> sqlite3.Connection:
@@ -122,6 +134,7 @@ class LocalBarCache:
         if self._mootdx is None:
             try:
                 from mootdx.quotes import Quotes
+
                 self._mootdx = Quotes.factory(market="std")
             except Exception as e:
                 raise RuntimeError(
@@ -186,7 +199,9 @@ class LocalBarCache:
             for r in rows
         ]
 
-    def download_and_cache(self, symbols: list[str], offset: int = 750) -> dict[str, int]:
+    def download_and_cache(
+        self, symbols: list[str], offset: int = 750
+    ) -> dict[str, int]:
         """批量下载日线并存入缓存。返回 {symbol: 新增行数}。
 
         Args:
@@ -208,7 +223,16 @@ class LocalBarCache:
                     continue
                 # 批量 INSERT OR IGNORE（已有数据不重复写入）
                 rows = [
-                    (b.symbol, b.date, b.open, b.high, b.low, b.close, b.volume, b.amount)
+                    (
+                        b.symbol,
+                        b.date,
+                        b.open,
+                        b.high,
+                        b.low,
+                        b.close,
+                        b.volume,
+                        b.amount,
+                    )
                     for b in bars
                 ]
                 conn.executemany(
@@ -275,7 +299,16 @@ class LocalBarCache:
                                 "INSERT OR IGNORE INTO daily_bars "
                                 "(symbol, date, open, high, low, close, volume, amount) "
                                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                                (b.symbol, b.date, b.open, b.high, b.low, b.close, b.volume, b.amount),
+                                (
+                                    b.symbol,
+                                    b.date,
+                                    b.open,
+                                    b.high,
+                                    b.low,
+                                    b.close,
+                                    b.volume,
+                                    b.amount,
+                                ),
                             )
                             new_rows += 1
                     if new_rows > 0:
@@ -307,7 +340,7 @@ class LocalBarCache:
         all_bars: dict[str, list[DailyBar]] = {}
 
         for batch_start in range(0, len(symbols), batch_size):
-            batch = symbols[batch_start:batch_start + batch_size]
+            batch = symbols[batch_start : batch_start + batch_size]
             placeholders = ",".join("?" * len(batch))
             rows = conn.execute(
                 f"SELECT symbol, date, open, high, low, close, volume, amount "
@@ -319,16 +352,18 @@ class LocalBarCache:
                 sym = r[0]
                 if sym not in all_bars:
                     all_bars[sym] = []
-                all_bars[sym].append(DailyBar(
-                    symbol=sym,
-                    date=r[1],
-                    open=r[2],
-                    high=r[3],
-                    low=r[4],
-                    close=r[5],
-                    volume=r[6],
-                    amount=r[7],
-                ))
+                all_bars[sym].append(
+                    DailyBar(
+                        symbol=sym,
+                        date=r[1],
+                        open=r[2],
+                        high=r[3],
+                        low=r[4],
+                        close=r[5],
+                        volume=r[6],
+                        amount=r[7],
+                    )
+                )
 
         return all_bars
 
@@ -336,7 +371,9 @@ class LocalBarCache:
         """返回缓存统计信息。"""
         conn = self._get_conn()
         total_rows = conn.execute("SELECT COUNT(*) FROM daily_bars").fetchone()[0]
-        total_symbols = conn.execute("SELECT COUNT(DISTINCT symbol) FROM daily_bars").fetchone()[0]
+        total_symbols = conn.execute(
+            "SELECT COUNT(DISTINCT symbol) FROM daily_bars"
+        ).fetchone()[0]
         date_range = conn.execute(
             "SELECT MIN(date), MAX(date) FROM daily_bars"
         ).fetchone()

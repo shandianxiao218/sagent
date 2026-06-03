@@ -72,12 +72,13 @@ export default function sagentExtension(pi: ExtensionAPI) {
 	// ── Tool: prepare_scan ──────────────────────────────────────
 	// Python 量化粗筛 + LLM 规则引擎判断，使用 mootdx + AKShare 真实行情数据
 	// 输出结构化 JSON：包含初筛理由、K 线描述、LLM 判断结果、板块验证
-	pi.registerTool({
+		pi.registerTool({
 		name: "prepare_scan",
 		label: "Prepare Scan Data",
 		description:
-			"执行 sagent 扫描（真实行情）：股票池过滤 → 技术候选 → K 线描述 → LLM 判断 → 板块验证 → 持仓监控。输出包含初筛理由和 LLM 判断结果的完整 JSON。",
-		promptSnippet: "准备 sagent 扫描数据，获取候选股和判断结果。",
+			"执行 sagent 扫描（真实行情）：股票池过滤 → 技术候选 → K 线描述 → LLM 判断 → 板块验证 → 持仓监控。输出包含初筛理由和 LLM 判断结果的完整 JSON。" +
+			"当用户说扫描、scan、找信号、找买点、筛选股票、今日信号、近期信号时，调用此 tool。支持 days 参数扫描近 N 日。",
+		promptSnippet: "扫描 A 股信号，找买点、筛选候选股。",
 		promptGuidelines: [
 			"prepare_scan 输出的 candidates 同时包含量化粗筛理由（screening_reasons）和 LLM 判断结果（llm_judgment）。",
 			"llm_judgment.action 为买入/观察/放弃，reason 为判断理由。",
@@ -190,8 +191,8 @@ export default function sagentExtension(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "analyze_stock",
 		label: "Analyze Stock",
-		description: "生成单只股票的 K 线自然语言描述（使用真实行情数据）。",
-		promptSnippet: "把个股 K 线转成自然语言描述，供你判断形态。",
+		description: "生成单只股票的 K 线自然语言描述（使用真实行情数据）。当用户说分析某股、看看某股、查看某股、分析一下时，调用此 tool。",
+		promptSnippet: "分析个股 K 线形态，查看某只股票的走势。",
 		parameters: Type.Object({
 			symbol: Type.String({ description: "股票代码，例如 000001" }),
 		}),

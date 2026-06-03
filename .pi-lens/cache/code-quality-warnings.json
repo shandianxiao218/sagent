@@ -1,38 +1,15 @@
 {
-  "generatedAt": "2026-06-03T01:13:07.270Z",
+  "generatedAt": "2026-06-03T01:28:15.409Z",
   "scope": "turn_delta",
   "sessionId": "lens-mpx9sn7w-fa1fa846",
-  "turnIndex": 55,
-  "projectSeqStart": 361,
-  "projectSeqEnd": 362,
+  "turnIndex": 79,
+  "projectSeqStart": 370,
+  "projectSeqEnd": 371,
   "deltaOnly": true,
-  "files": [
-    {
-      "filePath": "D:\\suishi\\sagent\\docs\\HANDOFF.md",
-      "displayPath": "docs/HANDOFF.md",
-      "fileSeq": 4,
-      "warnings": [
-        {
-          "id": "cq:ec5a0a88f0",
-          "filePath": "D:\\suishi\\sagent\\docs\\HANDOFF.md",
-          "displayPath": "docs/HANDOFF.md",
-          "severity": "warning",
-          "tool": "pi-lens",
-          "message": "Pi-lens analysis unavailable. Tools for markdown not installed.",
-          "category": "other",
-          "origin": "dispatch"
-        }
-      ]
-    }
-  ],
+  "files": [],
   "summary": {
-    "warnings": 1,
-    "files": 1,
-    "topRules": [
-      {
-        "rule": "pi-lens",
-        "count": 1
-      }
-    ]
+    "warnings": 0,
+    "files": 0,
+    "topRules": []
   }
 }

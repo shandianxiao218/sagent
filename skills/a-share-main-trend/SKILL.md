@@ -1,6 +1,10 @@
 ---
 name: a-share-main-trend
-description: A 股主线交易策略约束。用于 sagent 判断主线板块、个股形态、关键低点、止损止盈和持仓建议。
+description: >-
+  A 股主线交易策略约束。用于 sagent 判断主线板块、个股形态、关键低点、止损止盈和持仓建议。
+  当用户说"扫描"、"scan"、"找信号"、"找买点"、"筛选股票"、"今日信号"、"近期信号"时，
+  调用 prepare_scan tool 执行量化扫描。当用户说"分析"某只股票时，调用 analyze_stock tool。
+  当用户说"买入"、"apply"、"写入持仓"时，调用 apply_decision tool。
 ---
 
 # A 股主线交易策略

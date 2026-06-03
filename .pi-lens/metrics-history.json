@@ -3,14 +3,14 @@
   "files": {
     ".pi\\extensions\\sagent\\index.ts": {
       "latest": {
-        "commit": "7aeb7aa",
-        "timestamp": "2026-06-02T15:14:04.786Z",
-        "mi": 24.4,
-        "cognitive": 43,
+        "commit": "118f84e",
+        "timestamp": "2026-06-03T01:25:49.969Z",
+        "mi": 21,
+        "cognitive": 70,
         "nesting": 5,
-        "lines": 246,
-        "maxCyclomatic": 19,
-        "entropy": 6.17
+        "lines": 294,
+        "maxCyclomatic": 54,
+        "entropy": 6.29
       },
       "history": [
         {
@@ -42,10 +42,20 @@
           "lines": 246,
           "maxCyclomatic": 19,
           "entropy": 6.17
+        },
+        {
+          "commit": "118f84e",
+          "timestamp": "2026-06-03T01:25:49.969Z",
+          "mi": 21,
+          "cognitive": 70,
+          "nesting": 5,
+          "lines": 294,
+          "maxCyclomatic": 54,
+          "entropy": 6.29
         }
       ],
-      "trend": "stable"
+      "trend": "regressing"
     }
   },
-  "capturedAt": "2026-06-02T15:14:09.789Z"
+  "capturedAt": "2026-06-03T01:25:54.985Z"
 }

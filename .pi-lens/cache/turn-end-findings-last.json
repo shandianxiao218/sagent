@@ -1,6 +1,6 @@
 {
-  "signature": "docs/HANDOFF.md::ℹ️ Advisory — no action required this turn:\nCode-quality warnings introduced/touched this turn: 1 across 1 file(s).\nTop rules: pi-lens×1\nDetails written to .pi-lens/cache/code-quality-warnings.json\nNo action required unless you are already refactoring these areas.",
+  "signature": ".pi/extensions/sagent/index.ts::Unresolved from this turn — .pi/extensions/sagent/index.ts:\n🔴 STOP — 5 issue(s) must be fixed:\n  L194: Property assignment expected.\n  L195: Property assignment expected.\n  L194: Unexpected token (unknown)\n  L154: Invert blocks when performing a negation test.\n  L272: Do not nest ternary expressions.",
   "sessionId": "lens-mpx9sn7w-fa1fa846",
-  "projectSeqStart": 361,
-  "projectSeqEnd": 362
+  "projectSeqStart": 369,
+  "projectSeqEnd": 370
 }

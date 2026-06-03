@@ -22,9 +22,13 @@ def _check_candidate_conditions(closes: list[float]) -> tuple[dict, list[str]] |
     breakout = closes[-1] > max(closes[-8:-1])
 
     # 快速失败：先检查最严格的条件
-    if not (current > ma250 and rise_60d >= 0.5
-            and 0.15 <= pullback <= 0.5
-            and recent_rebound and breakout):
+    if not (
+        current > ma250
+        and rise_60d >= 0.5
+        and 0.15 <= pullback <= 0.5
+        and recent_rebound
+        and breakout
+    ):
         return None
 
     pullback_low = min(closes[-30:])
