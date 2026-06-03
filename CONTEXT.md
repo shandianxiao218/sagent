@@ -76,6 +76,29 @@
   - 盈亏比达到 2.5–3 时止盈一半。
   - 剩余仓位在趋势破坏时全部退出。
 
+## 数据源
+
+### 行情层（K 线 + 实时价）
+- **mootdx（通达信 TCP 7709）**：K 线、五档盘口、逐笔成交 — 不封 IP，优先使用
+- **腾讯财经 HTTP**：PE/PB/市值/换手率/涨跌停 — 不封 IP
+
+### 板块/行业数据（a-stock-data）
+- **东财 push2**：行业板块涨跌排名（`industry_comparison()`）— 零鉴权
+- **百度股市通**：个股行业/概念/地域归属（`concept_blocks()`）— 零鉴权
+- 参见：`skills/a-stock-data/SKILL.md`（V3.2）
+- GitHub：https://github.com/simonlin1212/a-stock-data
+
+### 数据源优先级（来自 a-stock-data V3.2）
+1. mootdx/腾讯 — 不封 IP，优先
+2. 东财 push2 — 行业板块（零鉴权）
+3. 百度股市通 — 概念板块（零鉴权）
+4. 东财 datacenter — 龙虎榜/解禁（需限流）
+
+### 日线缓存（SQLite）
+- 本地缓存 3 年日线到 `data/bars.db`
+- 增量更新只补缺失交易日
+- 向量化解析（替代 iterrows）
+
 ## 关键术语
 
 ### 主线

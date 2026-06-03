@@ -64,8 +64,17 @@ class AStockDataMarketData:
                 pass
         self._tencent_quote = tencent_quote
 
-        self._concept_blocks = concept_blocks
+        # 如果未注入 industry_comparison，优先尝试东财 push2（零鉴权），
+        # HTTP 不通时回退到 mootdx TCP sector_cache
+        if industry_comparison is None:
+            industry_comparison = _make_industry_comparison()
         self._industry_comparison = industry_comparison
+
+        # 如果未注入 concept_blocks，优先尝试百度股市通，
+        # HTTP 不通时回退到 mootdx TCP sector_cache
+        if concept_blocks is None:
+            concept_blocks = _make_concept_blocks()
+        self._concept_blocks = concept_blocks
 
     def daily_bars(
         self, symbol: str, category: int = 4, offset: int = 300
@@ -145,6 +154,163 @@ class AStockDataMarketData:
                 )
             )
         return snapshots
+
+
+# ---------------------------------------------------------------------------
+# a-stock-data 内嵌函数（东财 push2 行业排名 + 百度股市通概念板块）
+# 来源: https://github.com/simonlin1212/a-stock-data SKILL.md V3.2
+# ---------------------------------------------------------------------------
+
+
+def _http_session():
+    """创建绕过系统代理的 HTTP session。"""
+    import requests
+    s = requests.Session()
+    s.trust_env = False  # 绕过 Windows 系统代理
+    return s
+
+
+def _default_industry_comparison(top_n: int = 20) -> dict:
+    """东财 push2 行业板块涨跌排名（零鉴权，~100 行业）。"""
+    url = "https://push2.eastmoney.com/api/qt/clist/get"
+    params = {
+        "pn": "1", "pz": "100", "po": "1", "np": "1",
+        "fltt": "2", "invt": "2",
+        "fs": "m:90+t:2",
+        "fields": "f2,f3,f4,f12,f13,f14,f104,f105,f128,f136,f140,f141,f207",
+    }
+    try:
+        s = _http_session()
+        r = s.get(url, params=params, timeout=10)
+        data = r.json()
+        items = data.get("data", {}).get("diff", [])
+    except Exception:
+        return {"top": [], "bottom": [], "total": 0}
+
+    rows = []
+    for i, item in enumerate(items, 1):
+        rows.append(
+            {
+                "rank": i,
+                "code": item.get("f12", ""),
+                "name": item.get("f14", ""),
+                "change_pct": float(item.get("f3", 0)),
+                "up_count": int(item.get("f104", 0)),
+                "down_count": int(item.get("f105", 0)),
+                "turnover": float(item.get("f6", 0)),
+                "leading_stocks": [item.get("f140", "")],
+            }
+        )
+    return {
+        "top": rows[:top_n],
+        "bottom": rows[-top_n:] if len(rows) > top_n else rows,
+        "total": len(rows),
+    }
+
+
+def _default_concept_blocks(code: str) -> dict:
+    """百度股市通概念板块归属（行业/概念/地域 + 涨跌幅）。"""
+    url = "https://gushitong.baidu.com/stock/ab"
+    params = {"code": code}
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Referer": "https://gushitong.baidu.com/",
+    }
+    try:
+        s = _http_session()
+        r = s.get(url, params=params, headers=headers, timeout=10)
+        data = r.json()
+        result = data.get("Result", {})
+    except Exception:
+        return {"industry": "未知", "concepts": [], "region": "未知"}
+
+    industry = "未知"
+    concepts: list[str] = []
+    region = "未知"
+
+    # 解析板块归属
+    for block in result.get("blockList", []):
+        block_type = str(block.get("type", ""))
+        block_name = block.get("name", "")
+        if block_type == "1":  # 行业
+            industry = block_name
+        elif block_type == "2":  # 概念
+            concepts.append(block_name)
+        elif block_type == "3":  # 地域
+            region = block_name
+
+    return {
+        "industry": industry,
+        "concepts": concepts[:20],
+        "region": region,
+        "pct_chg": float(result.get("price", {}).get("changePercent", 0)),
+    }
+
+
+def _make_industry_comparison():
+    """工厂：先尝试东财 HTTP，不通则回退 mootdx TCP sector_cache。"""
+    try:
+        s = _http_session()
+        r = s.get(
+            "https://push2.eastmoney.com/api/qt/clist/get",
+            params={"pn": "1", "pz": "1", "fs": "m:90+t:2", "fields": "f14"},
+            timeout=5,
+        )
+        if r.status_code == 200 and r.json().get("data", {}).get("diff"):
+            return _default_industry_comparison
+    except Exception:
+        pass
+
+    # HTTP 不通，回退到 mootdx TCP — 行业板块涨跌数据不可用，返回空
+    def _sector_fallback(top_n: int = 20) -> dict:
+        return {"top": [], "bottom": [], "total": 0, "_fallback": "mootdx_sector_cache"}
+
+    return _sector_fallback
+
+
+def _make_concept_blocks():
+    """工厂：先尝试百度 HTTP，不通则回退 mootdx TCP sector_cache。"""
+    try:
+        s = _http_session()
+        r = s.get(
+            "https://gushitong.baidu.com/stock/ab",
+            params={"code": "000001"},
+            headers={"User-Agent": "Mozilla/5.0", "Referer": "https://gushitong.baidu.com/"},
+            timeout=5,
+        )
+        if r.status_code == 200:
+            try:
+                data = r.json()
+                if data.get("Result") is not None:
+                    return _default_concept_blocks
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # HTTP 不通，回退到 mootdx TCP sector_cache
+    from pathlib import Path
+    from .sector_cache import SectorCache
+
+    db_path = Path(__file__).resolve().parents[1] / "data" / "sector.db"
+    cache = SectorCache(db_path)
+    if cache.needs_refresh():
+        cache.refresh()
+    all_mapping = cache.get_all_mapping()
+    cache.close()
+
+    def _blocks_from_cache(code: str) -> dict:
+        sectors = all_mapping.get(code, [])
+        industry = sectors[0] if sectors else "未知"
+        return {
+            "industry": industry,
+            "concepts": sectors[1:] if len(sectors) > 1 else [],
+            "region": "未知",
+            "pct_chg": 0,
+            "_fallback": "mootdx_sector_cache",
+        }
+
+    return _blocks_from_cache
 
 
 class FixtureMarketData:

@@ -1,7 +1,7 @@
 {
   "version": 1,
   "projectRoot": "D:/suishi/sagent",
-  "generatedAt": "2026-06-03T02:00:04.950Z",
+  "generatedAt": "2026-06-03T05:02:56.608Z",
   "seq": 346,
   "files": {
     "D:/suishi/sagent/close_issues.py": {
@@ -339,6 +339,118 @@
       "size": 7600,
       "imports": [],
       "lastSeq": 0
+    },
+    "D:/suishi/sagent/sagent/sector_cache.py": {
+      "path": "D:/suishi/sagent/sagent/sector_cache.py",
+      "mtimeMs": 1780461588415.9453,
+      "size": 7261,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/scripts/diag_sector.py": {
+      "path": "D:/suishi/sagent/scripts/diag_sector.py",
+      "mtimeMs": 1780461359207.5762,
+      "size": 1730,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/scripts/diag_sector2.py": {
+      "path": "D:/suishi/sagent/scripts/diag_sector2.py",
+      "mtimeMs": 1780461359218.49,
+      "size": 1349,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/scripts/diag_sector3.py": {
+      "path": "D:/suishi/sagent/scripts/diag_sector3.py",
+      "mtimeMs": 1780461359236.8777,
+      "size": 290,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/scripts/diag_sector4.py": {
+      "path": "D:/suishi/sagent/scripts/diag_sector4.py",
+      "mtimeMs": 1780461359227.308,
+      "size": 1075,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/scripts/diag_sector5.py": {
+      "path": "D:/suishi/sagent/scripts/diag_sector5.py",
+      "mtimeMs": 1780461359243.3416,
+      "size": 1065,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/scripts/test_em_industry.py": {
+      "path": "D:/suishi/sagent/scripts/test_em_industry.py",
+      "mtimeMs": 1780461922976.9897,
+      "size": 715,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/scripts/test_sector_raw.py": {
+      "path": "D:/suishi/sagent/scripts/test_sector_raw.py",
+      "mtimeMs": 1780462279552.0728,
+      "size": 1295,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/scripts/test_sector.py": {
+      "path": "D:/suishi/sagent/scripts/test_sector.py",
+      "mtimeMs": 1780462238579.184,
+      "size": 797,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/scripts/test_no_proxy.py": {
+      "path": "D:/suishi/sagent/scripts/test_no_proxy.py",
+      "mtimeMs": 1780462400791.5713,
+      "size": 769,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/scripts/test_trust_env.py": {
+      "path": "D:/suishi/sagent/scripts/test_trust_env.py",
+      "mtimeMs": 1780462400813.8066,
+      "size": 711,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/scripts/test_block_all.py": {
+      "path": "D:/suishi/sagent/scripts/test_block_all.py",
+      "mtimeMs": 1780462746098.2998,
+      "size": 431,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/scripts/test_block_types.py": {
+      "path": "D:/suishi/sagent/scripts/test_block_types.py",
+      "mtimeMs": 1780462719166.111,
+      "size": 793,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/scripts/test_bypass_proxy.py": {
+      "path": "D:/suishi/sagent/scripts/test_bypass_proxy.py",
+      "mtimeMs": 1780462794079.8264,
+      "size": 1627,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/scripts/test_sector_e2e.py": {
+      "path": "D:/suishi/sagent/scripts/test_sector_e2e.py",
+      "mtimeMs": 1780462975403.6965,
+      "size": 1085,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/scripts/test_sector_encoding.py": {
+      "path": "D:/suishi/sagent/scripts/test_sector_encoding.py",
+      "mtimeMs": 1780462682869.4883,
+      "size": 709,
+      "imports": [],
+      "lastSeq": 0
     }
   },
   "symbols": {},
@@ -359,6 +471,7 @@
     "D:/suishi/sagent/sagent/notify.py": [],
     "D:/suishi/sagent/sagent/portfolio.py": [],
     "D:/suishi/sagent/sagent/scan.py": [],
+    "D:/suishi/sagent/sagent/sector_cache.py": [],
     "D:/suishi/sagent/sagent/sector.py": [],
     "D:/suishi/sagent/sagent/technical.py": [],
     "D:/suishi/sagent/sagent/validation.py": [],
@@ -369,6 +482,11 @@
     "D:/suishi/sagent/scripts/apply_decision.py": [],
     "D:/suishi/sagent/scripts/benchmark_scan.py": [],
     "D:/suishi/sagent/scripts/check_nav.py": [],
+    "D:/suishi/sagent/scripts/diag_sector.py": [],
+    "D:/suishi/sagent/scripts/diag_sector2.py": [],
+    "D:/suishi/sagent/scripts/diag_sector3.py": [],
+    "D:/suishi/sagent/scripts/diag_sector4.py": [],
+    "D:/suishi/sagent/scripts/diag_sector5.py": [],
     "D:/suishi/sagent/scripts/find_real_cases.py": [],
     "D:/suishi/sagent/scripts/format_report.py": [],
     "D:/suishi/sagent/scripts/generate_charts.py": [],
@@ -379,6 +497,16 @@
     "D:/suishi/sagent/scripts/prepare_scan.py": [],
     "D:/suishi/sagent/scripts/run_backtest_period.py": [],
     "D:/suishi/sagent/scripts/run_backtest.py": [],
+    "D:/suishi/sagent/scripts/test_block_all.py": [],
+    "D:/suishi/sagent/scripts/test_block_types.py": [],
+    "D:/suishi/sagent/scripts/test_bypass_proxy.py": [],
+    "D:/suishi/sagent/scripts/test_em_industry.py": [],
+    "D:/suishi/sagent/scripts/test_no_proxy.py": [],
+    "D:/suishi/sagent/scripts/test_sector_e2e.py": [],
+    "D:/suishi/sagent/scripts/test_sector_encoding.py": [],
+    "D:/suishi/sagent/scripts/test_sector_raw.py": [],
+    "D:/suishi/sagent/scripts/test_sector.py": [],
+    "D:/suishi/sagent/scripts/test_trust_env.py": [],
     "D:/suishi/sagent/tests/test_cache.py": [],
     "D:/suishi/sagent/tests/test_e2e_scripts.py": [],
     "D:/suishi/sagent/tests/test_sagent_behaviors.py": []

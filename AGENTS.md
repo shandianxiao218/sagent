@@ -29,3 +29,10 @@ Issues 和 PRD 统一发布到 GitHub Issues：`shandianxiao218/sagent`。详见
 ### Domain docs
 
 本仓库采用 single-context 布局：优先读取根目录 `CONTEXT.md` 和 `docs/adr/`。详见 `docs/agents/domain.md`。
+
+### Data sources
+
+行业板块和个股行业归属依赖 [a-stock-data](https://github.com/simonlin1212/a-stock-data) V3.2：
+- `skills/a-stock-data/SKILL.md` 内嵌全部 Python 代码，无需 pip 安装
+- `data.py` 已集成 `industry_comparison()`（东财 push2）和 `concept_blocks()`（百度股市通）
+- 板块数据是扫描分析的核心输入，必须正常工作

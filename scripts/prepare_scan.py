@@ -42,6 +42,7 @@ def _scan_all_days_from_cache(
     all_stocks: list,
     bars_map: dict[str, list],
     scan_days: int,
+    data=None,
 ) -> tuple[list[dict], int, int, int, int]:
     """从预加载的 bars_map 中扫描多个信号日，复用数据。
 
@@ -119,18 +120,25 @@ def _scan_all_days_from_cache(
 
                 description = describe_stock(symbol, working_bars)
 
-                # 尝试获取行业归属
+                # 获取行业归属（优先百度股市通，回退 AKShare）
                 industry = "未知"
-                try:
-                    import akshare as ak
+                if data is not None:
+                    try:
+                        blocks = data.concept_blocks(symbol)
+                        industry = blocks.get("industry", "未知")
+                    except Exception:
+                        pass
+                if industry == "未知":
+                    try:
+                        import akshare as ak
 
-                    df = ak.stock_individual_info_em(symbol=symbol)
-                    for _, row in df.iterrows():
-                        if row.get("item") == "行业":
-                            industry = str(row.get("value", "未知"))
-                            break
-                except Exception:
-                    pass
+                        df = ak.stock_individual_info_em(symbol=symbol)
+                        for _, row in df.iterrows():
+                            if row.get("item") == "行业":
+                                industry = str(row.get("value", "未知"))
+                                break
+                    except Exception:
+                        pass
 
                 signal_date = working_bars[-1].date
                 candidates.append(
@@ -298,7 +306,7 @@ def main() -> None:
     )
     t0 = time.perf_counter()
     all_candidates, skipped_st, skipped_amount, skipped_bars, total_scanned = (
-        _scan_all_days_from_cache(all_stocks, bars_map, scan_days)
+        _scan_all_days_from_cache(all_stocks, bars_map, scan_days, data=data)
     )
     t_scan = time.perf_counter() - t0
 
