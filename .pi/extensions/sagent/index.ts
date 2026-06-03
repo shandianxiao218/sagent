@@ -72,7 +72,7 @@ export default function sagentExtension(pi: ExtensionAPI) {
 	// ── Tool: prepare_scan ──────────────────────────────────────
 	// Python 量化粗筛 + LLM 规则引擎判断，使用 mootdx + AKShare 真实行情数据
 	// 输出结构化 JSON：包含初筛理由、K 线描述、LLM 判断结果、板块验证
-		pi.registerTool({
+	pi.registerTool({
 		name: "prepare_scan",
 		label: "Prepare Scan Data",
 		description:
@@ -80,9 +80,14 @@ export default function sagentExtension(pi: ExtensionAPI) {
 			"当用户说扫描、scan、找信号、找买点、筛选股票、今日信号、近期信号时，调用此 tool。支持 days 参数扫描近 N 日。",
 		promptSnippet: "扫描 A 股信号，找买点、筛选候选股。",
 		promptGuidelines: [
-			"prepare_scan 输出的 candidates 同时包含量化粗筛理由（screening_reasons）和 LLM 判断结果（llm_judgment）。",
-			"llm_judgment.action 为买入/观察/放弃，reason 为判断理由。",
-			"使用 prepare_scan 的输出时，必须提醒用户不构成投资建议。",
+			"prepare_scan 返回后，你必须执行完整分析流程，不能只展示原始 JSON。按以下步骤处理：",
+			"1. 解读结果：从 candidates 中筛选 llm_judgment.action='买入' 的标的，作为重点推荐。",
+			"2. 综合分析：结合板块验证（sectors）、持仓状态（portfolio）、候选股的 K 线形态和风险指标，给出你的判断。",
+			"3. 给出建议：明确推荐哪些标的可以买入，说明理由（趋势、回调结构、板块共振等），给出建议买入价、止损价、目标价。",
+			"4. 风控检查：检查持仓数量、本周开仓次数、单笔资金占比是否符合风控规则。",
+			"5. 行动确认：如果用户同意，调用 apply_decision tool 将建议写入 portfolio。",
+			"所有分析和建议末尾必须附带：仅作研究和辅助分析，不构成投资建议。",
+			"llm_judgment.action 为买入/观察/放弃，confidence 为置信度，key_low 为关键低点，invalid_condition 为失效条件。",
 		],
 		parameters: Type.Object({
 			days: Type.Optional(
@@ -191,7 +196,8 @@ export default function sagentExtension(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "analyze_stock",
 		label: "Analyze Stock",
-		description: "生成单只股票的 K 线自然语言描述（使用真实行情数据）。当用户说分析某股、看看某股、查看某股、分析一下时，调用此 tool。",
+		description:
+			"生成单只股票的 K 线自然语言描述（使用真实行情数据）。当用户说分析某股、看看某股、查看某股、分析一下时，调用此 tool。",
 		promptSnippet: "分析个股 K 线形态，查看某只股票的走势。",
 		parameters: Type.Object({
 			symbol: Type.String({ description: "股票代码，例如 000001" }),
