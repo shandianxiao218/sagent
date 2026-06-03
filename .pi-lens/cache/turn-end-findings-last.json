@@ -1,6 +1,6 @@
 {
-  "signature": "AGENTS.md::ℹ️ Advisory — no action required this turn:\nCode-quality warnings introduced/touched this turn: 1 across 1 file(s).\nTop rules: pi-lens×1\nDetails written to .pi-lens/cache/code-quality-warnings.json\nNo action required unless you are already refactoring these areas.",
-  "sessionId": "lens-mpv9ucis-a1abbf31",
-  "projectSeqStart": 239,
-  "projectSeqEnd": 240
+  "signature": "docs/HANDOFF.md::ℹ️ Advisory — no action required this turn:\nCode-quality warnings introduced/touched this turn: 1 across 1 file(s).\nTop rules: pi-lens×1\nDetails written to .pi-lens/cache/code-quality-warnings.json\nNo action required unless you are already refactoring these areas.",
+  "sessionId": "lens-mpx9sn7w-fa1fa846",
+  "projectSeqStart": 361,
+  "projectSeqEnd": 362
 }

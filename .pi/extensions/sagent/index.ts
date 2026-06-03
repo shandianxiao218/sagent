@@ -266,7 +266,11 @@ export default function sagentExtension(pi: ExtensionAPI) {
 						const screen = (c.screening_reasons ?? []).join("、");
 						const llm = c.llm_judgment ?? {};
 						const actionIcon =
-							llm.action === "买入" ? "\u2705" : llm.action === "观察" ? "\uD83D\uDC40" : "\u274C";
+							llm.action === "买入"
+								? "\u2705"
+								: llm.action === "观察"
+									? "\uD83D\uDC40"
+									: "\u274C";
 						return (
 							`### ${actionIcon} ${c.symbol} ${c.name} \u2014 ${llm.action}\n` +
 							`- 价格: ${c.current} | 止损: ${c.stop_loss_price} | key_low: ${c.key_low}\n` +
@@ -314,8 +318,7 @@ export default function sagentExtension(pi: ExtensionAPI) {
 					{ triggerTurn: true, deliverAs: "nextTurn" },
 				);
 			} catch (error) {
-				const message =
-					error instanceof Error ? error.message : String(error);
+				const message = error instanceof Error ? error.message : String(error);
 				ctx.ui.notify(`sagent /scan 失败：${message}`, "error");
 			}
 		},

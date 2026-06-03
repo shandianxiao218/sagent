@@ -1905,7 +1905,9 @@ def test_risk_reward_ratio_calculation():
 
     # 验证盈亏比计算逻辑
     # risk = current - stop_loss_price (not key_low)
-    stop_loss = round(max(desc.fields["current"] * 0.90, desc.fields["key_low"] * 0.97), 2)
+    stop_loss = round(
+        max(desc.fields["current"] * 0.90, desc.fields["key_low"] * 0.97), 2
+    )
     risk = desc.fields["current"] - stop_loss
     assert desc.fields["risk"] == round(risk, 2)
 

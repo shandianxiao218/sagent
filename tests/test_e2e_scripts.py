@@ -15,7 +15,9 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 
 
-def _run_script(script: str, args: list[str] | None = None, stdin_data: str = "") -> subprocess.CompletedProcess:
+def _run_script(
+    script: str, args: list[str] | None = None, stdin_data: str = ""
+) -> subprocess.CompletedProcess:
     """用当前 pytest 的 Python 解释器执行脚本。"""
     cmd = [sys.executable, str(SCRIPTS / script)]
     if args:
@@ -105,20 +107,29 @@ def test_portfolio_confirm_buy(tmp_path):
     """portfolio.py confirm-buy 子命令买入股票。"""
     portfolio_path = tmp_path / "portfolio.json"
     # 先 init
-    _run_script("portfolio.py", ["init", "--path", str(portfolio_path), "--cash", "100000"])
+    _run_script(
+        "portfolio.py", ["init", "--path", str(portfolio_path), "--cash", "100000"]
+    )
 
     # 再 buy
     result = _run_script(
         "portfolio.py",
         [
             "confirm-buy",
-            "--path", str(portfolio_path),
-            "--symbol", "000001",
-            "--name", "测试股票",
-            "--sector", "AI应用",
-            "--buy-price", "15.0",
-            "--key-low", "13.29",
-            "--trade-date", "2026-06-02",
+            "--path",
+            str(portfolio_path),
+            "--symbol",
+            "000001",
+            "--name",
+            "测试股票",
+            "--sector",
+            "AI应用",
+            "--buy-price",
+            "15.0",
+            "--key-low",
+            "13.29",
+            "--trade-date",
+            "2026-06-02",
         ],
     )
 
@@ -159,6 +170,7 @@ def test_prepare_scan_fails_gracefully_without_mootdx():
     """如果 Python 环境无 mootdx，AStockDataMarketData() 应抛出清晰错误而非段错误。"""
     try:
         from sagent.data import AStockDataMarketData
+
         # 如果 mootdx 可用，这个测试直接 pass（已安装的情况）
         AStockDataMarketData()
     except RuntimeError as e:
@@ -200,19 +212,24 @@ def test_apply_decision_writes_buy(tmp_path):
     """apply_decision.py 通过 stdin 接收判断结果并写入 portfolio。"""
     portfolio_path = tmp_path / "portfolio.json"
     # 先 init
-    _run_script("portfolio.py", ["init", "--path", str(portfolio_path), "--cash", "100000"])
+    _run_script(
+        "portfolio.py", ["init", "--path", str(portfolio_path), "--cash", "100000"]
+    )
 
-    decisions = json.dumps([
-        {
-            "action": "买入",
-            "symbol": "000001",
-            "name": "测试股票",
-            "sector": "AI应用",
-            "buy_price": 15.0,
-            "key_low": 13.29,
-            "invalid_condition": "跌破关键低点",
-        }
-    ], ensure_ascii=False)
+    decisions = json.dumps(
+        [
+            {
+                "action": "买入",
+                "symbol": "000001",
+                "name": "测试股票",
+                "sector": "AI应用",
+                "buy_price": 15.0,
+                "key_low": 13.29,
+                "invalid_condition": "跌破关键低点",
+            }
+        ],
+        ensure_ascii=False,
+    )
 
     result = _run_script(
         "apply_decision.py",
@@ -276,6 +293,7 @@ def test_python_env_has_required_packages():
 def test_python_env_path_consistency():
     """当前 pytest 使用的 Python 和脚本的 sys.path 基础一致。"""
     import sagent
+
     sagent_path = Path(sagent.__file__).parent
     assert sagent_path.exists()
     assert (sagent_path / "backtest_engine.py").exists()
@@ -309,7 +327,7 @@ def test_stop_loss_formula_e2e():
     # 构造简单 bars: entry=100, key_low=90
     # stop_loss = max(100*0.90, 90*0.97) = max(90, 87.3) = 90
     bars = [
-        DailyBar("T", f"2026-01-{i+1:02d}", 95, 105, 85, 100, 1000, 10000)
+        DailyBar("T", f"2026-01-{i + 1:02d}", 95, 105, 85, 100, 1000, 10000)
         for i in range(40)
     ]
     # 信号日在 idx 39
@@ -336,26 +354,61 @@ def test_stop_loss_key_low_buffer_e2e():
         d = base + timedelta(days=i)
         if i == 35:
             # swing low: low=97, close=97.5
-            bars.append(DailyBar("T", d.strftime("%Y-%m-%d"), 97.3, 98.0, 97.0, 97.5, 1000, 10000))
+            bars.append(
+                DailyBar(
+                    "T", d.strftime("%Y-%m-%d"), 97.3, 98.0, 97.0, 97.5, 1000, 10000
+                )
+            )
         elif i == 39:
             # 信号日: close=100
-            bars.append(DailyBar("T", d.strftime("%Y-%m-%d"), 99.0, 101.0, 98.0, 100.0, 1000, 10000))
+            bars.append(
+                DailyBar(
+                    "T", d.strftime("%Y-%m-%d"), 99.0, 101.0, 98.0, 100.0, 1000, 10000
+                )
+            )
         elif i < 15:
-            bars.append(DailyBar("T", d.strftime("%Y-%m-%d"), 94.3, 96.0, 94.0, 95.0, 1000, 10000))
+            bars.append(
+                DailyBar(
+                    "T", d.strftime("%Y-%m-%d"), 94.3, 96.0, 94.0, 95.0, 1000, 10000
+                )
+            )
         elif i < 25:
             frac = (i - 15) / 10
             close = 95 + frac * 8
-            bars.append(DailyBar("T", d.strftime("%Y-%m-%d"), close - 0.5, close + 1, close - 1, close, 1000, 10000))
+            bars.append(
+                DailyBar(
+                    "T",
+                    d.strftime("%Y-%m-%d"),
+                    close - 0.5,
+                    close + 1,
+                    close - 1,
+                    close,
+                    1000,
+                    10000,
+                )
+            )
         elif i < 30:
-            bars.append(DailyBar("T", d.strftime("%Y-%m-%d"), 102.0, 104.0, 101.0, 103.0, 1000, 10000))
+            bars.append(
+                DailyBar(
+                    "T", d.strftime("%Y-%m-%d"), 102.0, 104.0, 101.0, 103.0, 1000, 10000
+                )
+            )
         elif i < 35:
             frac = (i - 30) / 5
             low = 101 - frac * 4
-            bars.append(DailyBar("T", d.strftime("%Y-%m-%d"), low, low + 2, low, low + 1, 1000, 10000))
+            bars.append(
+                DailyBar(
+                    "T", d.strftime("%Y-%m-%d"), low, low + 2, low, low + 1, 1000, 10000
+                )
+            )
         else:
             frac = (i - 36) / 3
             low = 97 + frac * 1
-            bars.append(DailyBar("T", d.strftime("%Y-%m-%d"), low, low + 2, low, low + 1, 1000, 10000))
+            bars.append(
+                DailyBar(
+                    "T", d.strftime("%Y-%m-%d"), low, low + 2, low, low + 1, 1000, 10000
+                )
+            )
 
     trade = simulate_trade(bars, 39, max_holding=20)
 
@@ -374,6 +427,7 @@ def test_kline_description_uses_new_stop_loss():
     bars = data.daily_bars("000001")
 
     from sagent.kline import describe_stock
+
     desc = describe_stock("000001", bars)
 
     # risk_price 应该等于 stop_loss_price（基于新公式）

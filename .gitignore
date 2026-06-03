@@ -29,3 +29,6 @@ tmp_*.py
 tmp_*.md
 
 charts/
+
+# 数据缓存
+data/

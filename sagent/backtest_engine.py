@@ -242,7 +242,10 @@ def simulate_trade(
     absolute_stop_threshold = round(entry_price * 0.90, 2)
     keylow_stop_threshold = round(key_low * 0.97, 2)
     if exit_reason == "止损":
-        if exit_price == absolute_stop_threshold and absolute_stop_threshold > keylow_stop_threshold:
+        if (
+            exit_price == absolute_stop_threshold
+            and absolute_stop_threshold > keylow_stop_threshold
+        ):
             stop_loss_type = "绝对止损10%"
         else:
             stop_loss_type = "关键低点"

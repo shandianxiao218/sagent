@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """准备扫描数据：量化粗筛 + K 线描述 + LLM 判断 + 板块验证 + 持仓监控。
 
-使用 mootdx + AKShare 真实行情数据。
-输出结构化 JSON，包含：
-  - 初筛理由和结果（量化指标）
-  - LLM 判断后的理由和结果（规则引擎 fallback）
-  - 板块验证
-  - 持仓监控
+优化要点：
+  - 本地 SQLite 缓存日线数据，首次下载 3 年，后续增量补缺
+  - 多日扫描复用同一份 K 线数据（不再 5525×N 次 TCP 请求）
+  - 向量化 DataFrame 解析（替代 iterrows）
 
 支持 --days N 参数扫描近 N 个交易日。
+支持 --cache PATH 指定缓存数据库路径（默认 data/bars.db）。
+支持 --no-cache 禁用缓存，直接从 mootdx 拉取。
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ import argparse
 import json
 import os
 import sys
+import time
 from collections import Counter
 from dataclasses import asdict
 from pathlib import Path
@@ -37,55 +38,56 @@ from sagent.portfolio import PortfolioStore, monitor_positions  # noqa: E402
 from sagent.sector import summarize_sectors, validate_mainline_sectors  # noqa: E402
 
 
-def _scan_candidates(
-    data: AStockDataMarketData,
+def _scan_all_days_from_cache(
     all_stocks: list,
-    signal_offset: int = 0,
-) -> tuple[list[dict], int, int, int]:
-    """扫描候选股。
+    bars_map: dict[str, list],
+    scan_days: int,
+) -> tuple[list[dict], int, int, int, int]:
+    """从预加载的 bars_map 中扫描多个信号日，复用数据。
 
-    Args:
-        data: 行情数据源
-        all_stocks: 全部 A 股列表
-        signal_offset: 信号日偏移量（0=最新日，1=昨日，以此类推）
+    核心优化：bars_map 只加载一次，多日扫描全部复用，零网络请求。
 
     Returns:
-        (candidates, skipped_st, skipped_amount, skipped_bars)
+        (candidates, skipped_st, skipped_amount, skipped_bars, total_scanned)
     """
-    candidates = []
+    candidates: list[dict] = []
     skipped_st = 0
     skipped_amount = 0
     skipped_bars = 0
+    total_scanned = 0
 
-    for i, stock in enumerate(all_stocks):
-        if (i + 1) % 500 == 0:
-            print(
-                f"  已扫描 {i + 1}/{len(all_stocks)}（偏移 {signal_offset}日）...",
-                file=sys.stderr,
-            )
-        try:
-            name = stock.name
-            symbol = stock.symbol
-            if "ST" in name or "*ST" in name:
-                skipped_st += 1
-                continue
+    for stock in all_stocks:
+        name = stock.name
+        symbol = stock.symbol
 
-            bars = data.daily_bars(symbol)
-            # 需要 signal_offset + 1 天的数据（offset=0 用到最新日）
-            min_bars = 260 + signal_offset
+        if "ST" in name or "*ST" in name:
+            skipped_st += 1
+            continue
+
+        bars = bars_map.get(symbol, [])
+        if not bars:
+            skipped_bars += 1
+            continue
+
+        total_scanned += 1
+
+        # 对每个 offset 尝试扫描
+        for offset in range(scan_days):
+            min_bars = 260 + offset
             if len(bars) < min_bars:
-                skipped_bars += 1
+                if offset == 0:
+                    skipped_bars += 1
                 continue
 
-            # 取偏移后的数据窗口
-            end_idx = len(bars) - signal_offset
+            end_idx = len(bars) - offset
             working_bars = bars[:end_idx]
 
             # 成交额过滤：20 日均成交额 >= 1 亿
             amounts_20d = [b.amount for b in working_bars[-20:]]
             avg_amount = _mean(amounts_20d) if amounts_20d else 0
             if avg_amount < 100_000_000:
-                skipped_amount += 1
+                if offset == 0:
+                    skipped_amount += 1
                 continue
 
             closes = [b.close for b in working_bars]
@@ -151,14 +153,12 @@ def _scan_candidates(
                     }
                 )
                 print(
-                    f"  * 发现候选：{symbol} {name} "
+                    f"  * 候选：{symbol} {name} "
                     f"价格 {current:.2f} 涨幅 {rise_60d:.1%} 日期 {signal_date}",
                     file=sys.stderr,
                 )
-        except Exception:
-            continue
 
-    return candidates, skipped_st, skipped_amount, skipped_bars
+    return candidates, skipped_st, skipped_amount, skipped_bars, total_scanned
 
 
 def _deduplicate_candidates(all_candidates: list[dict]) -> list[dict]:
@@ -183,7 +183,20 @@ def main() -> None:
         default=1,
         help="扫描近 N 个交易日（默认 1，即仅当天）",
     )
+    parser.add_argument(
+        "--cache",
+        type=str,
+        default=None,
+        help="缓存数据库路径（默认 data/bars.db）",
+    )
+    parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="禁用缓存，直接从 mootdx 拉取",
+    )
     args = parser.parse_args()
+
+    t_total_start = time.perf_counter()
 
     config_path = ROOT / "config" / "default.json"
     portfolio_path = ROOT / "portfolio.json"
@@ -191,38 +204,117 @@ def main() -> None:
     config = load_config(config_path, env=dict(os.environ))
     model_name = config.models.default_judgement_model
 
+    # ---------------------------------------------------------------
+    # Phase 1: 获取股票列表
+    # ---------------------------------------------------------------
     print("正在连接通达信行情服务器...", file=sys.stderr)
     data = AStockDataMarketData()
 
-    # 1. 获取全部 A 股列表
     print("正在获取 A 股列表...", file=sys.stderr)
+    t0 = time.perf_counter()
     all_stocks = data.stocks()
-    print(f"获取到 {len(all_stocks)} 只股票", file=sys.stderr)
+    t_list = time.perf_counter() - t0
+    print(f"获取到 {len(all_stocks)} 只股票 ({t_list:.2f}s)", file=sys.stderr)
 
-    # 2. 逐日扫描（days > 1 时扫描多个信号日）
-    all_candidates: list[dict] = []
-    total_scanned = len(all_stocks)
-    skipped_st = skipped_amount = skipped_bars = 0
-    scan_days = min(args.days, 20)  # 最多扫 20 天
+    symbols = [s.symbol for s in all_stocks]
 
-    for offset in range(scan_days):
-        print(f"\n--- 扫描信号日偏移 {offset}（近 {scan_days} 日中的第 {offset + 1} 天）---", file=sys.stderr)
-        day_cands, dst, damt, dbars = _scan_candidates(data, all_stocks, signal_offset=offset)
-        all_candidates.extend(day_cands)
-        skipped_st += dst
-        skipped_amount += damt
-        skipped_bars += dbars
+    scan_days = min(args.days, 20)
 
-    # 去重
+    # ---------------------------------------------------------------
+    # Phase 2: 加载 K 线数据（缓存 or 直连）
+    # ---------------------------------------------------------------
+    t0 = time.perf_counter()
+    bars_map: dict[str, list] = {}
+
+    use_cache = not args.no_cache
+    cache_path = Path(args.cache) if args.cache else ROOT / "data" / "bars.db"
+
+    if use_cache:
+        try:
+            from sagent.cache import LocalBarCache
+
+            print(f"正在初始化本地缓存 ({cache_path})...", file=sys.stderr)
+            cache = LocalBarCache(cache_path)
+            cache_stats = cache.stats()
+            print(
+                f"缓存状态：{cache_stats['total_symbols']} 只股票 "
+                f"{cache_stats['total_rows']} 行 "
+                f"({cache_stats['db_size_mb']} MB) "
+                f"日期范围 {cache_stats.get('date_min', '?')} ~ {cache_stats.get('date_max', '?')}",
+                file=sys.stderr,
+            )
+
+            # 增量补缺
+            print("正在检查增量更新...", file=sys.stderr)
+            t1 = time.perf_counter()
+            ensure_result = cache.ensure_symbols(symbols, min_bars=250)
+            t_ensure = time.perf_counter() - t1
+            new_bars = sum(v for v in ensure_result.values() if v > 0)
+            updated_count = sum(1 for v in ensure_result.values() if v > 0)
+            print(
+                f"增量更新完成：{updated_count} 只股票有新数据，"
+                f"共 {new_bars} 行 ({t_ensure:.2f}s)",
+                file=sys.stderr,
+            )
+
+            # 批量读取全部 K 线
+            print("正在从缓存加载 K 线数据...", file=sys.stderr)
+            t1 = time.perf_counter()
+            bars_map = cache.bulk_daily_bars(symbols)
+            t_load = time.perf_counter() - t1
+            loaded_count = sum(1 for v in bars_map.values() if v)
+            print(
+                f"加载完成：{loaded_count} 只股票 ({t_load:.2f}s)",
+                file=sys.stderr,
+            )
+
+            cache.close()
+        except Exception as e:
+            print(f"缓存初始化失败，降级为直连模式：{e}", file=sys.stderr)
+            use_cache = False
+
+    if not use_cache:
+        # 直连模式：逐只下载
+        print("直连模式：逐只下载 K 线...", file=sys.stderr)
+        for i, stock in enumerate(all_stocks):
+            if (i + 1) % 500 == 0:
+                print(f"  下载进度: {i + 1}/{len(all_stocks)}", file=sys.stderr)
+            try:
+                bars = data.daily_bars(stock.symbol)
+                if bars:
+                    bars_map[stock.symbol] = bars
+            except Exception:
+                pass
+
+    t_data = time.perf_counter() - t0
+    print(f"K 线数据准备完成 ({t_data:.2f}s)", file=sys.stderr)
+
+    # ---------------------------------------------------------------
+    # Phase 3: 扫描候选股（复用 bars_map）
+    # ---------------------------------------------------------------
+    print(
+        f"\n开始扫描 {scan_days} 日信号（{len(bars_map)} 只股票有数据）...",
+        file=sys.stderr,
+    )
+    t0 = time.perf_counter()
+    all_candidates, skipped_st, skipped_amount, skipped_bars, total_scanned = (
+        _scan_all_days_from_cache(all_stocks, bars_map, scan_days)
+    )
+    t_scan = time.perf_counter() - t0
+
     candidates = _deduplicate_candidates(all_candidates)
     print(
-        f"\n扫描完成：{len(all_candidates)} 个信号（去重后 {len(candidates)} 个候选）| "
+        f"\n扫描完成 ({t_scan:.2f}s)：{len(all_candidates)} 个信号 "
+        f"（去重后 {len(candidates)} 个候选）| "
         f"ST跳过 {skipped_st} | 金额不足 {skipped_amount} | K线不足 {skipped_bars}",
         file=sys.stderr,
     )
 
-    # 3. 板块数据
+    # ---------------------------------------------------------------
+    # Phase 4: 板块数据
+    # ---------------------------------------------------------------
     print("正在获取板块数据...", file=sys.stderr)
+    t0 = time.perf_counter()
     sector_decisions: dict[str, dict] = {}
     try:
         snapshots = data.sector_snapshots()
@@ -250,13 +342,17 @@ def main() -> None:
             }
     except Exception as e:
         print(f"板块数据获取失败：{e}", file=sys.stderr)
+    t_sector = time.perf_counter() - t0
+    print(f"板块数据完成 ({t_sector:.2f}s)", file=sys.stderr)
 
-    # 4. LLM 判断每个候选股
+    # ---------------------------------------------------------------
+    # Phase 5: LLM 判断
+    # ---------------------------------------------------------------
     print("正在执行 LLM 判断...", file=sys.stderr)
+    t0 = time.perf_counter()
     for c in candidates:
         sector_name = c.get("sector", "未知")
-        # 找匹配的板块判断
-        sd_action = "主线"  # 默认
+        sd_action = "主线"
         sd_reason = "无板块数据，默认主线"
         sd_confidence = 0.5
         for _sname, sd in sector_decisions.items():
@@ -294,28 +390,41 @@ def main() -> None:
             f"(置信度 {stock_decision.confidence:.0%})",
             file=sys.stderr,
         )
+    t_llm = time.perf_counter() - t0
+    print(f"LLM 判断完成 ({t_llm:.2f}s)", file=sys.stderr)
 
-    # 5. 持仓监控
+    # ---------------------------------------------------------------
+    # Phase 6: 持仓监控
+    # ---------------------------------------------------------------
     portfolio = PortfolioStore(portfolio_path).load_or_create()
-    current_prices = {}
+    current_prices: dict[str, float] = {}
     for position in portfolio.positions:
-        try:
-            bars = data.daily_bars(position.symbol)
-            if bars:
-                current_prices[position.symbol] = bars[-1].close
-        except Exception:
-            pass
+        pos_bars = bars_map.get(position.symbol, [])
+        if pos_bars:
+            current_prices[position.symbol] = pos_bars[-1].close
     portfolio_suggestions = monitor_positions(
         portfolio, current_prices, trend_broken={}
     )
 
-    # 6. 输出
+    t_total = time.perf_counter() - t_total_start
+
+    # ---------------------------------------------------------------
+    # 输出
+    # ---------------------------------------------------------------
     result = {
         "step": "scan_complete",
-        "data_source": "mootdx + AKShare（真实行情）",
+        "data_source": f"mootdx + AKShare（{'缓存模式' if use_cache else '直连模式'}）",
         "scan_days": scan_days,
         "judgement_model": model_name,
         "fallback_models": config.models.optional_judgement_models,
+        "timing": {
+            "total_sec": round(t_total, 2),
+            "data_load_sec": round(t_data, 2),
+            "scan_sec": round(t_scan, 2),
+            "sector_sec": round(t_sector, 2),
+            "llm_sec": round(t_llm, 2),
+            "cache_enabled": use_cache,
+        },
         "stock_pool": {
             "total_listed": len(all_stocks),
             "scanned": total_scanned,

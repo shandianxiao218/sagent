@@ -1,8 +1,8 @@
 {
   "version": 1,
   "projectRoot": "D:/suishi/sagent",
-  "generatedAt": "2026-06-02T04:52:01.498Z",
-  "seq": 192,
+  "generatedAt": "2026-06-03T01:10:13.168Z",
+  "seq": 346,
   "files": {
     "D:/suishi/sagent/close_issues.py": {
       "path": "D:/suishi/sagent/close_issues.py",
@@ -304,6 +304,41 @@
       "size": 2401,
       "imports": [],
       "lastSeq": 0
+    },
+    "D:/suishi/sagent/scripts/check_nav.py": {
+      "path": "D:/suishi/sagent/scripts/check_nav.py",
+      "mtimeMs": 1780376314904.3728,
+      "size": 499,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/tests/test_e2e_scripts.py": {
+      "path": "D:/suishi/sagent/tests/test_e2e_scripts.py",
+      "mtimeMs": 1780413492188.1038,
+      "size": 13582,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/sagent/cache.py": {
+      "path": "D:/suishi/sagent/sagent/cache.py",
+      "mtimeMs": 1780448539085.1284,
+      "size": 13007,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/scripts/benchmark_scan.py": {
+      "path": "D:/suishi/sagent/scripts/benchmark_scan.py",
+      "mtimeMs": 1780448902872.9458,
+      "size": 9041,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/tests/test_cache.py": {
+      "path": "D:/suishi/sagent/tests/test_cache.py",
+      "mtimeMs": 1780448965119.1409,
+      "size": 7600,
+      "imports": [],
+      "lastSeq": 0
     }
   },
   "symbols": {},
@@ -313,6 +348,7 @@
     "D:/suishi/sagent/sagent/backtest_engine.py": [],
     "D:/suishi/sagent/sagent/backtest_portfolio.py": [],
     "D:/suishi/sagent/sagent/backtest.py": [],
+    "D:/suishi/sagent/sagent/cache.py": [],
     "D:/suishi/sagent/sagent/chart.py": [],
     "D:/suishi/sagent/sagent/config.py": [],
     "D:/suishi/sagent/sagent/data.py": [],
@@ -331,6 +367,8 @@
     "D:/suishi/sagent/scripts/analyze_stoploss.py": [],
     "D:/suishi/sagent/scripts/analyze_v2.py": [],
     "D:/suishi/sagent/scripts/apply_decision.py": [],
+    "D:/suishi/sagent/scripts/benchmark_scan.py": [],
+    "D:/suishi/sagent/scripts/check_nav.py": [],
     "D:/suishi/sagent/scripts/find_real_cases.py": [],
     "D:/suishi/sagent/scripts/format_report.py": [],
     "D:/suishi/sagent/scripts/generate_charts.py": [],
@@ -341,6 +379,8 @@
     "D:/suishi/sagent/scripts/prepare_scan.py": [],
     "D:/suishi/sagent/scripts/run_backtest_period.py": [],
     "D:/suishi/sagent/scripts/run_backtest.py": [],
+    "D:/suishi/sagent/tests/test_cache.py": [],
+    "D:/suishi/sagent/tests/test_e2e_scripts.py": [],
     "D:/suishi/sagent/tests/test_sagent_behaviors.py": []
   },
   "cachedExports": [],
@@ -360,7 +400,7 @@
     "scanRoot": "D:\\suishi\\sagent",
     "projectRoot": "D:\\suishi\\sagent",
     "canWarmCaches": true,
-    "sourceFileCount": 28
+    "sourceFileCount": 36
   },
   "languageProfile": {
     "present": {
@@ -404,7 +444,7 @@
       "jsts": true
     },
     "counts": {
-      "python": 28
+      "python": 36
     },
     "detectedKinds": [
       "jsts",
