@@ -81,8 +81,8 @@ export default function sagentExtension(pi: ExtensionAPI) {
 		promptSnippet: "扫描 A 股信号，找买点、筛选候选股。",
 		promptGuidelines: [
 			"prepare_scan 返回后，你必须执行完整分析流程，不能只展示原始 JSON。按以下步骤处理：",
-			"1. 解读结果：从 candidates 中筛选 llm_judgment.action='买入' 的标的，作为重点推荐。",
-			"2. 综合分析：结合板块验证（sectors）、持仓状态（portfolio）、候选股的 K 线形态和风险指标，给出你的判断。",
+			"1. 解读结果：从 candidates 中筛选 llm_judgment.action='买入' 的标的，作为重点推荐。板块主线是加分项，不因非主线而剔除。",
+			"2. 综合分析：结合板块验证（sectors，主线加分）、持仓状态（portfolio）、候选股的 K 线形态和风险指标，给出你的判断。主线板块的标的优先推荐。",
 			"3. 给出建议：明确推荐哪些标的可以买入，说明理由（趋势、回调结构、板块共振等），给出建议买入价、止损价、目标价。",
 			"4. 风控检查：检查持仓数量、本周开仓次数、单笔资金占比是否符合风控规则。",
 			"5. 行动确认：如果用户同意，调用 apply_decision tool 将建议写入 portfolio。",
