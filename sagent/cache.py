@@ -367,6 +367,118 @@ class LocalBarCache:
 
         return all_bars
 
+    def daily_bars_up_to(self, symbol: str, max_date: str) -> list[DailyBar]:
+        """从本地缓存读取日线数据，只返回 <= max_date 的 bar。
+
+        回测时必须使用此方法（或 bulk_daily_bars_up_to），
+        防止信号检测用到未来数据（look-ahead bias）。
+        """
+        conn = self._get_conn()
+        rows = conn.execute(
+            "SELECT date, open, high, low, close, volume, amount "
+            "FROM daily_bars WHERE symbol = ? AND date <= ? ORDER BY date",
+            (symbol, max_date),
+        ).fetchall()
+        return [
+            DailyBar(
+                symbol=symbol,
+                date=r[0],
+                open=r[1],
+                high=r[2],
+                low=r[3],
+                close=r[4],
+                volume=r[5],
+                amount=r[6],
+            )
+            for r in rows
+        ]
+
+    def bulk_daily_bars_up_to(
+        self, symbols: list[str], max_date: str
+    ) -> dict[str, list[DailyBar]]:
+        """批量读取多只股票日线，只返回 <= max_date 的 bar。
+
+        回测专用：一次性加载所有股票截至回测日期的数据。
+        """
+        conn = self._get_conn()
+        if not symbols:
+            return {}
+
+        batch_size = 500
+        all_bars: dict[str, list[DailyBar]] = {}
+
+        for batch_start in range(0, len(symbols), batch_size):
+            batch = symbols[batch_start : batch_start + batch_size]
+            placeholders = ",".join("?" * len(batch))
+            rows = conn.execute(
+                f"SELECT symbol, date, open, high, low, close, volume, amount "
+                f"FROM daily_bars "
+                f"WHERE symbol IN ({placeholders}) AND date <= ? ORDER BY date",
+                (*batch, max_date),
+            ).fetchall()
+
+            for r in rows:
+                sym = r[0]
+                if sym not in all_bars:
+                    all_bars[sym] = []
+                all_bars[sym].append(
+                    DailyBar(
+                        symbol=sym,
+                        date=r[1],
+                        open=r[2],
+                        high=r[3],
+                        low=r[4],
+                        close=r[5],
+                        volume=r[6],
+                        amount=r[7],
+                    )
+                )
+
+        return all_bars
+
+    def bulk_closes_up_to(
+        self, symbols: list[str], max_date: str
+    ) -> dict[str, tuple[list[str], list[float]]]:
+        """批量读取多只股票截至 max_date 的 (dates, closes) 元组。
+
+        比 bulk_daily_bars_up_to 快 ~10x，因为不构建 DailyBar 对象，
+        只提取信号扫描需要的 date 和 close 两列。
+
+        Returns:
+            {symbol: (dates_list, closes_list)} 按 date 升序
+        """
+        conn = self._get_conn()
+        if not symbols:
+            return {}
+
+        batch_size = 500
+        result: dict[str, tuple[list[str], list[float]]] = {}
+        dates_map: dict[str, list[str]] = {}
+        closes_map: dict[str, list[float]] = {}
+
+        for batch_start in range(0, len(symbols), batch_size):
+            batch = symbols[batch_start : batch_start + batch_size]
+            placeholders = ",".join("?" * len(batch))
+            rows = conn.execute(
+                f"SELECT symbol, date, close "
+                f"FROM daily_bars "
+                f"WHERE symbol IN ({placeholders}) AND date <= ? ORDER BY date",
+                (*batch, max_date),
+            ).fetchall()
+
+            for r in rows:
+                sym = r[0]
+                if sym not in dates_map:
+                    dates_map[sym] = []
+                    closes_map[sym] = []
+                dates_map[sym].append(r[1])
+                closes_map[sym].append(r[2])
+
+        for sym in dates_map:
+            result[sym] = (dates_map[sym], closes_map[sym])
+
+        return result
+
     def stats(self) -> dict:
         """返回缓存统计信息。"""
         conn = self._get_conn()

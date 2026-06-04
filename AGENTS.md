@@ -36,3 +36,19 @@ Issues 和 PRD 统一发布到 GitHub Issues：`shandianxiao218/sagent`。详见
 - `skills/a-stock-data/SKILL.md` 内嵌全部 Python 代码，无需 pip 安装
 - `data.py` 已集成 `industry_comparison()`（东财 push2）和 `concept_blocks()`（百度股市通）
 - 板块数据是扫描分析的核心输入，必须正常工作
+
+### Backtest pipeline
+
+回测必须执行完整三步流程（回测→生成图→生成报表）：
+1. **回测**：`python scripts/run_backtest_period.py --engine --cache data/bars.db --output <json>`
+2. **生成图**：`python scripts/generate_charts.py --input <json> --cache data/bars.db`
+3. **生成报表**：`python scripts/backtest_report.py --input <json>`（同时生成 Markdown + HTML）
+
+所有回测数据使用 SQLite 缓存（`data/bars.db`），防未来函数。详见 `sagent/cache.py` 的 `daily_bars_up_to` / `bulk_closes_up_to`。
+
+报表必须包含以下内容：
+- **每个选中股票的选股理由**：MA250 位置、60日涨幅、回调比、60日高低点等信号指标
+- **LLM 判断理由**：动作（买入/观察/放弃）、置信度、判断理由文本
+- **K线形态描述**：`describe_stock()` 输出的形态描述
+- **HTML 报表**：除 Markdown 外必须生成一份交互式 HTML，每笔交易可展开查看完整详情
+- 末尾附带免责声明：仅作研究和辅助分析，不构成投资建议

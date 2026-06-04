@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import time
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -24,11 +25,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from sagent.backtest_engine import simulate_trade, run_backtest_engine
+from sagent.backtest_engine import simulate_trade
 from sagent.backtest_portfolio import run_portfolio_backtest
+from sagent.cache import LocalBarCache
 from sagent.kline import describe_stock
 from sagent.models import DailyBar
-from sagent.technical import _ma
 
 # ─── 行业归属获取（简化版 L6）─────────────────────────────────
 # 注意：回测中的 L6 是简化版，仅获取行业归属并做集中度统计，
@@ -63,6 +64,7 @@ def fetch_all_stocks() -> list[dict]:
 
 
 def fetch_bars(symbol: str, offset: int = 370) -> list[DailyBar]:
+    """直连 mootdx 获取 K 线（旧方式，不推荐用于回测）。"""
     from mootdx.quotes import Quotes
 
     client = Quotes.factory(market="std")
@@ -91,31 +93,40 @@ def fetch_bars(symbol: str, offset: int = 370) -> list[DailyBar]:
 
 
 def check_signal(bars: list[DailyBar], idx: int) -> dict | None:
+    """从 DailyBar 列表检测信号（兼容接口，内部委托给 check_signal_from_closes）。"""
+    closes = [b.close for b in bars]
+    return check_signal_from_closes(closes, idx)
+
+
+def check_signal_from_closes(closes: list[float], idx: int) -> dict | None:
+    """信号检测（纯 closes 数组版，回测循环用这个避免重复提取）。
+
+    预提取 closes 后重复调用，每次只做索引访问，O(1) 而非 O(idx)。
+    """
     if idx < 260:
         return None
-    window = bars[: idx + 1]
-    closes = [b.close for b in window]
-    current = closes[-1]
-    ma250 = _ma(closes, 250)
+    current = closes[idx]
+    ma250 = sum(closes[idx - 249 : idx + 1]) / 250
 
     if current <= ma250:
         return None
 
-    recent_60 = closes[-60:]
+    s60 = idx - 59
+    recent_60 = closes[s60 : idx + 1]
     low_60 = min(recent_60)
     high_60 = max(recent_60)
     rise_60d = (high_60 - low_60) / low_60 if low_60 else 0
     if rise_60d < 0.5:
         return None
 
-    pullback = (high_60 - min(closes[-30:])) / max(high_60 - low_60, 0.01)
+    s30 = idx - 29
+    recent_30 = closes[s30 : idx + 1]
+    pullback = (high_60 - min(recent_30)) / max(high_60 - low_60, 0.01)
     if not (0.15 <= pullback <= 0.5):
         return None
 
-    if len(closes) < 8:
-        return None
-    recent_rebound = closes[-1] > closes[-2] > closes[-3]
-    breakout = closes[-1] > max(closes[-8:-1])
+    recent_rebound = closes[idx] > closes[idx - 1] > closes[idx - 2]
+    breakout = closes[idx] > max(closes[idx - 7 : idx])
     if not (recent_rebound and breakout):
         return None
 
@@ -265,6 +276,7 @@ def run_backtest(
     window_step: int = 3,
     min_forward: int = 20,
     min_avg_amount: float = 100_000_000,
+    cache_path: str | None = None,
 ) -> dict:
     print(f"=== 定向时间区间回测: {start_date} ~ {end_date} ===", file=sys.stderr)
     print(
@@ -285,91 +297,134 @@ def run_backtest(
     sample = random.sample(all_stocks, min(sample_size, len(all_stocks)))
     print(f"  采样 {len(sample)} 只", file=sys.stderr)
 
-    # 2. 获取K线 + 检测信号
-    print("\n[2/5] 获取K线并检测信号...", file=sys.stderr)
-    all_signals: list[dict] = []
-    fetch_errors = 0
-    short_bars = 0
-    low_amount_count = 0
+    # 1.5 初始化 SQLite 缓存 + 预加载
+    db_path = Path(cache_path) if cache_path else ROOT / "data" / "bars.db"
+    cache = LocalBarCache(db_path)
+    sample_symbols = [str(s.get("code", "")) for s in sample]
+    print(f"\n  预加载缓存 ({db_path})...", file=sys.stderr)
+    cache.ensure_symbols(sample_symbols, min_bars=300)
+    cache_stats = cache.stats()
+    print(
+        f"  缓存就绪: {cache_stats['total_symbols']} 只, "
+        f"{cache_stats['total_rows']} 条, "
+        f"{cache_stats['db_size_mb']} MB",
+        file=sys.stderr,
+    )
 
+    # 2. 获取K线 + 检测信号
+    #    Phase A: 轻量级批量加载 (dates, closes) 做信号扫描
+    #    Phase B: 只有命中信号的股票才加载完整 DailyBar
+    #    关键防未来函数：所有数据只到 end_date
+    print("\n[2/5] 获取K线并检测信号...", file=sys.stderr)
+
+    # Phase A: 批量加载 closes（只取 date + close，比 DailyBar 快 ~10x）
+    print("  Phase A: 批量加载 closes...", file=sys.stderr)
+    t0 = time.perf_counter()
+    all_closes_map = cache.bulk_closes_up_to(sample_symbols, end_date)
+    t_load = time.perf_counter() - t0
+    print(f"    加载 {len(all_closes_map)} 只, {t_load:.3f}s", file=sys.stderr)
+
+    # Phase A 扫描：用 closes 做信号检测
+    print("  Phase A: 信号扫描...", file=sys.stderr)
+    t0 = time.perf_counter()
+    scan_hits: list[dict] = []  # {symbol, name, signal_date, check_idx, metrics}
+    short_bars = 0
     for i, stock in enumerate(sample):
         symbol = str(stock.get("code", ""))
         name = str(stock.get("name", ""))
 
-        if (i + 1) % 100 == 0:
-            print(
-                f"  进度: {i + 1}/{len(sample)}, 信号: {len(all_signals)}",
-                file=sys.stderr,
-            )
-
-        try:
-            bars = fetch_bars(symbol, offset=370)
-        except Exception:
-            fetch_errors += 1
-            continue
-
-        if len(bars) < 300:
+        dates, closes = all_closes_map.get(symbol, ([], []))
+        if len(closes) < 300:
             short_bars += 1
             continue
 
-        # 成交额过滤：最近20日日均成交额低于阈值则跳过
+        # 找日期范围
+        range_start_idx = range_end_idx = None
+        for j in range(len(dates)):
+            if dates[j] >= start_date and range_start_idx is None:
+                range_start_idx = j
+            if dates[j] <= end_date:
+                range_end_idx = j
+        if range_start_idx is None or range_end_idx is None:
+            continue
+
+        scan_start = max(260, range_start_idx)
+        scan_end = min(range_end_idx, len(closes) - min_forward)
+
+        for check_idx in range(scan_start, scan_end, window_step):
+            sig_date = dates[check_idx]
+            if sig_date < start_date or sig_date > end_date:
+                continue
+            metrics = check_signal_from_closes(closes, check_idx)
+            if metrics is not None:
+                scan_hits.append(
+                    {
+                        "symbol": symbol,
+                        "name": name,
+                        "signal_date": sig_date,
+                        "check_idx": check_idx,
+                        "metrics": metrics,
+                        "closes": closes,  # 保留给 Phase B 的 forward_returns
+                        "dates": dates,
+                    }
+                )
+    t_scan = time.perf_counter() - t0
+    print(f"    扫描完成: {len(scan_hits)} 信号, {t_scan:.3f}s", file=sys.stderr)
+
+    # Phase B: 只为命中信号的股票加载完整 DailyBar
+    print(f"  Phase B: 加载 {len(scan_hits)} 个信号的完整 K 线...", file=sys.stderr)
+    t0 = time.perf_counter()
+    all_signals: list[dict] = []
+    fetch_errors = 0
+    low_amount_count = 0
+    # 按信号股票去重加载
+    hit_symbols = {h["symbol"] for h in scan_hits}
+    bars_map: dict[str, list] = {}
+    for sym in hit_symbols:
+        bars_map[sym] = cache.daily_bars_up_to(sym, end_date)
+
+    for hit in scan_hits:
+        symbol = hit["symbol"]
+        bars = bars_map.get(symbol, [])
+        if not bars:
+            continue
+        check_idx = hit["check_idx"]
+
+        # 成交额过滤（最近20日）
         recent_bars = bars[-20:]
         avg_amount = mean(bar.amount for bar in recent_bars) if recent_bars else 0
         if avg_amount < min_avg_amount:
             low_amount_count += 1
             continue
 
-        # 找到日期范围内的索引
-        range_start_idx = None
-        range_end_idx = None
-        for j, bar in enumerate(bars):
-            if bar.date >= start_date and range_start_idx is None:
-                range_start_idx = j
-            if bar.date <= end_date:
-                range_end_idx = j
+        fwd = forward_returns(bars, check_idx)
+        window_bars = bars[: check_idx + 1]
+        desc_result = describe_stock(symbol, window_bars)
+        llm_result = simulated_llm_judge(
+            hit["metrics"], desc_result.text, desc_result.key_low
+        )
 
-        if range_start_idx is None or range_end_idx is None:
-            continue
+        all_signals.append(
+            {
+                "symbol": symbol,
+                "name": hit["name"],
+                "signal_date": hit["signal_date"],
+                "metrics": hit["metrics"],
+                "forward": fwd,
+                "kline_description": desc_result.text,
+                "key_low": desc_result.key_low,
+                "llm_action": llm_result["action"],
+                "llm_reason": llm_result["reason"],
+                "llm_confidence": llm_result["confidence"],
+            }
+        )
+    t_phase_b = time.perf_counter() - t0
+    print(
+        f"    Phase B 完成: {len(all_signals)} 有效信号, {t_phase_b:.3f}s",
+        file=sys.stderr,
+    )
 
-        # 需要至少260根前置K线，所以从 max(260, range_start_idx) 开始
-        scan_start = max(260, range_start_idx)
-        scan_end = min(range_end_idx, len(bars) - min_forward)
-
-        for check_idx in range(scan_start, scan_end, window_step):
-            sig_date = bars[check_idx].date
-            if sig_date < start_date or sig_date > end_date:
-                continue
-
-            metrics = check_signal(bars, check_idx)
-            if metrics is None:
-                continue
-
-            fwd = forward_returns(bars, check_idx)
-
-            # K线描述（用于LLM模拟判断）
-            window_bars = bars[: check_idx + 1]
-            desc_result = describe_stock(symbol, window_bars)
-
-            # LLM模拟判断
-            llm_result = simulated_llm_judge(
-                metrics, desc_result.text, desc_result.key_low
-            )
-
-            all_signals.append(
-                {
-                    "symbol": symbol,
-                    "name": name,
-                    "signal_date": sig_date,
-                    "metrics": metrics,
-                    "forward": fwd,
-                    "kline_description": desc_result.text,
-                    "key_low": desc_result.key_low,
-                    "llm_action": llm_result["action"],
-                    "llm_reason": llm_result["reason"],
-                    "llm_confidence": llm_result["confidence"],
-                }
-            )
-
+    cache.close()
     print(
         f"\n  完成: 错误{fetch_errors}, K线不足{short_bars}, 成交额不足{low_amount_count}",
         file=sys.stderr,
@@ -649,6 +704,7 @@ def run_engine_backtest(
     min_avg_amount: float = 100_000_000,
     initial_cash: float = 100_000,
     max_holding: int = 20,
+    cache_path: str | None = None,
 ) -> dict:
     """使用逐日止损/止盈引擎 + 组合管理的回测。
 
@@ -657,6 +713,8 @@ def run_engine_backtest(
     - 使用 backtest_portfolio.run_portfolio_backtest() 模拟资金管理
     - 每笔交易有退出方式（止损/趋势破坏/持有到期）
     - 组合管理：初始资金、每笔 10%、每周最多 2 笔
+
+    防未来函数：所有 K 线只加载到 end_date，simulate_trade 的 bars 不会包含未来数据。
     """
     print(
         f"=== 引擎回测 (逐日止损/止盈 + 组合管理): {start_date} ~ {end_date} ===",
@@ -681,80 +739,111 @@ def run_engine_backtest(
     sample = random.sample(all_stocks, min(sample_size, len(all_stocks)))
     print(f"  采样 {len(sample)} 只", file=sys.stderr)
 
-    # 2. 获取K线 + 检测信号（缓存 bars 供引擎使用）
+    # 1.5 初始化 SQLite 缓存 + 预加载
+    db_path = Path(cache_path) if cache_path else ROOT / "data" / "bars.db"
+    cache = LocalBarCache(db_path)
+    sample_symbols = [str(s.get("code", "")) for s in sample]
+    print(f"\n  预加载缓存 ({db_path})...", file=sys.stderr)
+    cache.ensure_symbols(sample_symbols, min_bars=300)
+    cache_stats = cache.stats()
+    print(
+        f"  缓存就绪: {cache_stats['total_symbols']} 只, "
+        f"{cache_stats['total_rows']} 条, "
+        f"{cache_stats['db_size_mb']} MB",
+        file=sys.stderr,
+    )
+
+    # 2. 获取K线 + 检测信号
+    #    Phase A: 轻量级批量 closes 扫描
+    #    Phase B: 只为命中股票加载完整 DailyBar
     print("\n[2/6] 获取K线并检测信号...", file=sys.stderr)
-    all_signals: list[dict] = []
-    bars_cache: dict[str, list[DailyBar]] = {}
-    fetch_errors = 0
+    name_cache: dict[str, str] = {
+        str(s.get("code", "")): str(s.get("name", "")) for s in sample
+    }
+
+    # Phase A: 批量 closes 扫描
+    print("  Phase A: 批量加载 closes...", file=sys.stderr)
+    t0 = time.perf_counter()
+    all_closes_map = cache.bulk_closes_up_to(sample_symbols, end_date)
+    print(
+        f"    {len(all_closes_map)} 只, {time.perf_counter() - t0:.3f}s",
+        file=sys.stderr,
+    )
+
+    print("  Phase A: 信号扫描...", file=sys.stderr)
+    t0 = time.perf_counter()
+    scan_hits: list[dict] = []
     short_bars = 0
-    low_amount_count = 0
-    name_cache: dict[str, str] = {}
-
-    for i, stock in enumerate(sample):
-        symbol = str(stock.get("code", ""))
-        name = str(stock.get("name", ""))
-        name_cache[symbol] = name
-
-        if (i + 1) % 100 == 0:
-            print(
-                f"  进度: {i + 1}/{len(sample)}, 信号: {len(all_signals)}",
-                file=sys.stderr,
-            )
-
-        try:
-            bars = fetch_bars(symbol, offset=370)
-        except Exception:
-            fetch_errors += 1
-            continue
-
-        if len(bars) < 300:
+    for sym in sample_symbols:
+        dates, closes = all_closes_map.get(sym, ([], []))
+        if len(closes) < 300:
             short_bars += 1
             continue
+        range_start_idx = range_end_idx = None
+        for j in range(len(dates)):
+            if dates[j] >= start_date and range_start_idx is None:
+                range_start_idx = j
+            if dates[j] <= end_date:
+                range_end_idx = j
+        if range_start_idx is None or range_end_idx is None:
+            continue
+        scan_start = max(260, range_start_idx)
+        scan_end = min(range_end_idx, len(closes) - max_holding)
+        for check_idx in range(scan_start, scan_end, window_step):
+            sig_date = dates[check_idx]
+            if sig_date < start_date or sig_date > end_date:
+                continue
+            sig_metrics = check_signal_from_closes(closes, check_idx)
+            if sig_metrics is not None:
+                scan_hits.append(
+                    {
+                        "symbol": sym,
+                        "signal_date": sig_date,
+                        "signal_idx": check_idx,
+                        "metrics": sig_metrics,
+                    }
+                )
+    print(
+        f"    {len(scan_hits)} 信号, {time.perf_counter() - t0:.3f}s", file=sys.stderr
+    )
 
-        # 缓存 bars
-        bars_cache[symbol] = bars
+    # Phase B: 只加载命中信号股票的完整 DailyBar
+    print(
+        f"  Phase B: 加载 {len({h['symbol'] for h in scan_hits})} 只信号股票完整 K 线...",
+        file=sys.stderr,
+    )
+    t0 = time.perf_counter()
+    hit_symbols = {h["symbol"] for h in scan_hits}
+    bars_cache: dict[str, list[DailyBar]] = {}
+    for sym in hit_symbols:
+        bars_cache[sym] = cache.daily_bars_up_to(sym, end_date)
+    print(f"    {time.perf_counter() - t0:.3f}s", file=sys.stderr)
 
+    # 成交额过滤 + 组装 all_signals
+    all_signals: list[dict] = []
+    low_amount_count = 0
+    for hit in scan_hits:
+        sym = hit["symbol"]
+        bars = bars_cache.get(sym, [])
+        if not bars:
+            continue
         # 成交额过滤
         recent_bars = bars[-20:]
         avg_amount = mean(bar.amount for bar in recent_bars) if recent_bars else 0
         if avg_amount < min_avg_amount:
             low_amount_count += 1
             continue
+        all_signals.append(
+            {
+                "symbol": sym,
+                "name": name_cache.get(sym, ""),
+                "signal_date": hit["signal_date"],
+                "signal_idx": hit["signal_idx"],
+                "metrics": hit["metrics"],
+            }
+        )
 
-        # 找到日期范围内的索引
-        range_start_idx = None
-        range_end_idx = None
-        for j, bar in enumerate(bars):
-            if bar.date >= start_date and range_start_idx is None:
-                range_start_idx = j
-            if bar.date <= end_date:
-                range_end_idx = j
-
-        if range_start_idx is None or range_end_idx is None:
-            continue
-
-        scan_start = max(260, range_start_idx)
-        scan_end = min(range_end_idx, len(bars) - max_holding)
-
-        for check_idx in range(scan_start, scan_end, window_step):
-            sig_date = bars[check_idx].date
-            if sig_date < start_date or sig_date > end_date:
-                continue
-
-            metrics = check_signal(bars, check_idx)
-            if metrics is None:
-                continue
-
-            all_signals.append(
-                {
-                    "symbol": symbol,
-                    "name": name,
-                    "signal_date": sig_date,
-                    "signal_idx": check_idx,
-                    "metrics": metrics,
-                }
-            )
-
+    fetch_errors = 0
     print(
         f"\n  完成: 错误{fetch_errors}, K线不足{short_bars}, "
         f"成交额不足{low_amount_count}",
@@ -765,7 +854,7 @@ def run_engine_backtest(
     if not all_signals:
         return {"error": "未找到信号", "total_signals": 0}
 
-    # 3. 逐日止损/止盈回测
+    # 3. 逐日止损/止盈回测 + K线描述 + LLM判断
     print("\n[3/6] 逐日止损/止盈引擎回测...", file=sys.stderr)
     engine_results: list[dict] = []
 
@@ -777,13 +866,31 @@ def run_engine_backtest(
             continue
 
         trade = simulate_trade(bars, signal_idx, max_holding=max_holding)
+
+        # K线描述（用于 LLM 判断和报表展示）
+        window_bars = bars[: signal_idx + 1]
+        desc_result = describe_stock(symbol, window_bars)
+
+        # LLM 模拟判断
+        llm_result = simulated_llm_judge(
+            sig["metrics"], desc_result.text, desc_result.key_low
+        )
+
         engine_results.append(
             {
                 "symbol": symbol,
                 "name": sig["name"],
                 "signal_date": sig["signal_date"],
+                # ── 选股理由 ──
+                "metrics": sig["metrics"],
+                "kline_description": desc_result.text,
+                "key_low": desc_result.key_low,
+                # ── LLM 判断 ──
+                "llm_action": llm_result["action"],
+                "llm_reason": llm_result["reason"],
+                "llm_confidence": llm_result["confidence"],
+                # ── 交易结果 ──
                 "entry_price": trade.entry_price,
-                "key_low": trade.key_low,
                 "stop_loss_price": trade.stop_loss_price,
                 "exit_reason": trade.exit_reason,
                 "exit_date": trade.exit_date,
@@ -824,6 +931,7 @@ def run_engine_backtest(
     )
 
     # 5. 汇总统计
+    cache.close()
     print("\n[5/6] 汇总统计...", file=sys.stderr)
 
     def safe_mean(values: list[float]) -> float | None:
@@ -965,8 +1073,11 @@ def run_engine_backtest(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="sagent 回测脚本。默认使用旧方式（买入持有20天），"
-        "--engine 使用逐日止损/止盈引擎。"
+        description=(
+            "sagent 回测脚本。默认使用旧方式（买入持有20天），"
+            "--engine 使用逐日止损/止盈引擎。"
+            "数据源使用 SQLite 缓存，防未来函数。"
+        ),
     )
     parser.add_argument("--start", default="2025-10-01")
     parser.add_argument("--end", default="2026-05-31")
@@ -989,6 +1100,11 @@ def main() -> None:
         default=100_000,
         help="组合管理初始资金（仅 --engine 模式），默认 100000",
     )
+    parser.add_argument(
+        "--cache",
+        default=None,
+        help="SQLite 缓存文件路径（默认 data/bars.db）",
+    )
     args = parser.parse_args()
 
     if args.engine:
@@ -998,6 +1114,7 @@ def main() -> None:
             sample_size=args.sample,
             min_avg_amount=args.min_amount,
             initial_cash=args.initial_cash,
+            cache_path=args.cache,
         )
         default_output = ROOT / "backtest_engine_v1.json"
     else:
@@ -1006,6 +1123,7 @@ def main() -> None:
             end_date=args.end,
             sample_size=args.sample,
             min_avg_amount=args.min_amount,
+            cache_path=args.cache,
         )
         default_output = ROOT / "backtest_oct25_jun26.json"
 

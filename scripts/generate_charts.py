@@ -19,6 +19,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from sagent.backtest_portfolio import DailyNAV, PortfolioStats
+from sagent.cache import LocalBarCache
 from sagent.chart import (
     plot_portfolio_dashboard,
     plot_signal_chart,
@@ -62,34 +63,53 @@ def _find_signal_idx(bars: list[DailyBar], signal_date: str) -> int | None:
 
 
 def main() -> None:
-    result_path = ROOT / "backtest_engine_v1.json"
-    v2_path = ROOT / "backtest_engine_v2.json"
-    if v2_path.exists():
-        result_path = v2_path
-    output_dir = ROOT / "charts"
-    output_dir.mkdir(exist_ok=True)
+    import argparse
 
-    if not result_path.exists():
-        print(f"错误: {result_path} 不存在")
+    parser = argparse.ArgumentParser(description="从回测 JSON 生成图表")
+    parser.add_argument("--input", default=None, help="回测 JSON 文件路径")
+    parser.add_argument("--cache", default=None, help="SQLite 缓存路径")
+    parser.add_argument("--output-dir", default=None, help="输出目录")
+    args = parser.parse_args()
+
+    # 自动查找最新的回测文件
+    candidates = [
+        "backtest_6m_full.json",
+        "backtest_engine_v1.json",
+        "backtest_engine_v2.json",
+    ]
+    result_path = Path(args.input) if args.input else None
+    if result_path is None:
+        for c in candidates:
+            p = ROOT / c
+            if p.exists():
+                result_path = p
+                break
+    if result_path is None or not result_path.exists():
+        print(f"错误: 未找到回测文件，请用 --input 指定")
         sys.exit(1)
+
+    output_dir = Path(args.output_dir) if args.output_dir else ROOT / "charts"
+    output_dir.mkdir(exist_ok=True)
 
     with open(result_path, encoding="utf-8") as f:
         data = json.loads(f.read())
 
     trades = data.get("trades", [])
-    print(f"共 {len(trades)} 笔交易")
+    end_date = data.get("meta", {}).get("parameters", {}).get("end_date", "2026-05-31")
+    print(f"加载 {result_path.name}: {len(trades)} 笔交易")
 
-    # ── 1. 获取K线 ──────────────────────────────────────────
+    # ── 1. 用缓存获取K线 ──────────────────────────────────────
     symbols = list({t["symbol"] for t in trades})
-    print(f"\n[1/5] 获取 {len(symbols)} 只股票K线...")
+    db_path = Path(args.cache) if args.cache else ROOT / "data" / "bars.db"
+    cache = LocalBarCache(db_path)
 
+    print(f"\n[1/5] 从缓存加载 {len(symbols)} 只股票K线 ({db_path})...")
     bars_map: dict[str, list[DailyBar]] = {}
     for sym in symbols:
-        try:
-            bars_map[sym] = fetch_bars(sym)
-            print(f"  {sym}: {len(bars_map[sym])} bars")
-        except Exception as e:
-            print(f"  {sym}: 失败 - {e}")
+        bars_map[sym] = cache.daily_bars_up_to(sym, end_date)
+    cache.close()
+    loaded = sum(1 for v in bars_map.values() if v)
+    print(f"  加载 {loaded}/{len(symbols)} 只")
 
     # ── 2. 信号标注图 + 波峰波谷结构图 ────────────────────────
     print(f"\n[2/5] 生成信号标注图 + 波峰波谷结构图...")
@@ -106,7 +126,6 @@ def main() -> None:
         if signal_idx is None:
             continue
 
-        # 截取信号日前后的 bars
         start = max(0, signal_idx - 120)
         end = min(len(bars), signal_idx + 30)
         chart_bars = bars[start:end]
@@ -115,8 +134,6 @@ def main() -> None:
         safe = sym.replace(".", "_")
         dsafe = signal_date.replace("-", "")
 
-        # 信号标注图
-        out1 = output_dir / f"signal_{safe}_{dsafe}.html"
         plot_signal_chart(
             bars=chart_bars,
             signal_idx=chart_signal_idx,
@@ -124,22 +141,19 @@ def main() -> None:
             key_low=trade.get("key_low"),
             stop_loss_price=trade.get("stop_loss_price"),
             entry_price=trade.get("entry_price"),
-            output_path=str(out1),
+            output_path=str(output_dir / f"signal_{safe}_{dsafe}.html"),
         )
-
-        # 波峰波谷结构图
-        out2 = output_dir / f"structure_{safe}_{dsafe}.html"
         plot_structure_chart(
             bars=chart_bars,
             signal_idx=chart_signal_idx,
             symbol=f"{sym} {signal_date}",
-            output_path=str(out2),
+            output_path=str(output_dir / f"structure_{safe}_{dsafe}.html"),
         )
-
         signal_count += 1
-        print(f"  [{signal_count}] {sym} {signal_date}")
 
-    # ── 3. 交易生命周期图（K线+R值曲线）──────────────────────
+    print(f"  {signal_count} 个信号图 + {signal_count} 个结构图")
+
+    # ── 3. 交易生命周期图 ───────────────────────────────────
     print(f"\n[3/5] 生成交易生命周期图...")
     lifecycle_count = 0
 
@@ -154,23 +168,18 @@ def main() -> None:
         if signal_idx is None:
             continue
 
-        # 用引擎重新模拟获取 TradeLifecycle（含逐日事件）
         lifecycle = simulate_trade(bars, signal_idx)
 
         safe = sym.replace(".", "_")
         dsafe = signal_date.replace("-", "")
-
-        out3 = output_dir / f"lifecycle_{safe}_{dsafe}.html"
         plot_trade_lifecycle(
             bars=bars,
             trade=lifecycle,
-            output_path=str(out3),
+            output_path=str(output_dir / f"lifecycle_{safe}_{dsafe}.html"),
         )
         lifecycle_count += 1
-        print(
-            f"  [{lifecycle_count}] {sym} {signal_date} | "
-            f"退出={lifecycle.exit_reason} Rmax={lifecycle.max_r:.1f}"
-        )
+
+    print(f"  {lifecycle_count} 个生命周期图")
 
     # ── 4. 组合仪表盘 ───────────────────────────────────────
     print(f"\n[4/5] 生成组合仪表盘...")
@@ -221,16 +230,13 @@ def main() -> None:
     plot_portfolio_dashboard(stats, output_path=str(dashboard_path))
     print(f"  组合仪表盘 -> {dashboard_path}")
 
-    # ── 5. 汇总 ─────────────────────────────────────────────
-    total = (
-        signal_count * 2 + lifecycle_count + 1
-    )  # signal + structure + lifecycle + dashboard
     print(f"\n[5/5] === 完成 ===")
+    total = signal_count * 2 + lifecycle_count + 1
     print(f"  信号标注图:   {signal_count} 个")
     print(f"  波峰波谷图:   {signal_count} 个")
     print(f"  生命周期图:   {lifecycle_count} 个")
     print(f"  组合仪表盘:   1 个")
-    print(f"  总计:         {total} 个 HTML 文件")
+    print(f"  总计:         {total} 个 HTML")
     print(f"  输出目录:     {output_dir}")
 
 

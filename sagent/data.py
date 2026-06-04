@@ -173,6 +173,44 @@ def _http_session():
     return s
 
 
+def _ths_sector_code_name_map() -> dict[str, str]:
+    """从同花顺行业板块主页提取代码→名称映射。"""
+    import re
+
+    s = _http_session()
+    url = "https://q.10jqka.com.cn/thshy/"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Referer": "https://q.10jqka.com.cn/",
+    }
+    try:
+        r = s.get(url, headers=headers, timeout=10)
+    except Exception:
+        return {}
+
+    mapping: dict[str, str] = {}
+    link_pattern = re.findall(
+        r'href="http://q\.10jqka\.com\.cn/thshy/detail/code/(\d+)/"',
+        r.text,
+    )
+    table_match = re.findall(
+        r'<table[^>]*class="m-table[^">]*"[^>]*>(.*?)</table>',
+        r.text,
+        re.DOTALL,
+    )
+    if table_match:
+        rows = re.findall(r"<tr[^>]*>(.*?)</tr>", table_match[0], re.DOTALL)
+        names_from_table = []
+        for row in rows:
+            cells = re.findall(r"<td[^>]*>(.*?)</td>", row, re.DOTALL)
+            clean = [re.sub(r"<[^>]+>", "", c).strip() for c in cells]
+            if len(clean) >= 2 and clean[0].isdigit():
+                names_from_table.append(clean[1])
+        for code, name in zip(link_pattern, names_from_table, strict=False):
+            mapping[code] = name
+    return mapping
+
+
 def _ths_sector_ranking(top_n: int = 100) -> dict:
     """同花顺行业板块涨跌排名（HTML 直出，零鉴权，~50 行业）。
 
@@ -195,26 +233,29 @@ def _ths_sector_ranking(top_n: int = 100) -> dict:
     # 提取表格数据
     table_match = re.findall(
         r'<table[^>]*class="m-table[^">]*"[^>]*>(.*?)</table>',
-        r.text, re.DOTALL,
+        r.text,
+        re.DOTALL,
     )
     if not table_match:
         return {"top": [], "bottom": [], "total": 0}
 
-    rows_raw = re.findall(r'<tr[^>]*>(.*?)</tr>', table_match[0], re.DOTALL)
+    rows_raw = re.findall(r"<tr[^>]*>(.*?)</tr>", table_match[0], re.DOTALL)
     rows = []
     for row_html in rows_raw:
-        cells = re.findall(r'<td[^>]*>(.*?)</td>', row_html, re.DOTALL)
-        clean = [re.sub(r'<[^>]+>', '', c).strip() for c in cells]
+        cells = re.findall(r"<td[^>]*>(.*?)</td>", row_html, re.DOTALL)
+        clean = [re.sub(r"<[^>]+>", "", c).strip() for c in cells]
         if len(clean) >= 10 and clean[0].isdigit():
-            rows.append({
-                "rank": int(clean[0]),
-                "name": clean[1],
-                "change_pct": float(clean[2]),
-                "up_count": int(clean[6]) if clean[6].isdigit() else 0,
-                "down_count": int(clean[7]) if clean[7].isdigit() else 0,
-                "turnover": float(clean[5]) if clean[5] else 0,
-                "leader": clean[9],
-            })
+            rows.append(
+                {
+                    "rank": int(clean[0]),
+                    "name": clean[1],
+                    "change_pct": float(clean[2]),
+                    "up_count": int(clean[6]) if clean[6].isdigit() else 0,
+                    "down_count": int(clean[7]) if clean[7].isdigit() else 0,
+                    "turnover": float(clean[5]) if clean[5] else 0,
+                    "leader": clean[9],
+                }
+            )
 
     return {
         "top": rows[:top_n],
