@@ -1,12 +1,65 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict
+from dataclasses import asdict, dataclass, field
 from datetime import date
 from pathlib import Path
 from typing import Any
 
-from .models import BuyResult, Portfolio, Position, PositionSuggestion
+
+@dataclass(frozen=True)
+class Decision:
+    action: str
+    reason: str
+    model: str = "GLM5.1"
+    risk: str = "仅作研究和辅助分析，不构成投资建议。"
+    confidence: float = 0.7
+    key_low: float | None = None
+    invalid_condition: str = ""
+
+
+@dataclass
+class Position:
+    symbol: str
+    name: str
+    sector: str
+    buy_price: float
+    quantity: int
+    amount: float
+    key_low: float
+    stop_loss_price: float
+    trade_date: str
+    half_taken: bool = False
+    remaining_quantity: int | None = None
+    trend_break_ref: float = 0.0
+    trend_break_desc: str = ""
+
+    def __post_init__(self) -> None:
+        if self.remaining_quantity is None:
+            self.remaining_quantity = self.quantity
+
+
+@dataclass
+class Portfolio:
+    cash: float
+    positions: list[Position] = field(default_factory=list)
+    weekly_open_count: int = 0
+    week_id: str = ""
+    trade_history: list[dict[str, Any]] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class BuyResult:
+    portfolio: Portfolio
+    position: Position
+
+
+@dataclass(frozen=True)
+class PositionSuggestion:
+    symbol: str
+    action: str
+    reason: str
+    risk: str = "仅作研究和辅助分析，不构成投资建议。"
 
 
 class PortfolioStore:

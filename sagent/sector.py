@@ -1,9 +1,49 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Protocol
 
-from .models import SectorSnapshot, SectorSummary, SectorValidation
+# Re-export cache classes for backward compatibility
+from .sector_bars_cache import SectorBarCache
+from .sector_cache import SectorCache
+
+
+@dataclass(frozen=True)
+class SectorSnapshot:
+    sector: str
+    date: str
+    turnover_rank: int
+    gain_rank: int
+    pct_chg: float
+    limit_up_count: int
+    strong_stocks: list[str]
+    up_count: int = 0
+    down_count: int = 0
+
+
+@dataclass(frozen=True)
+class SectorSummary:
+    sector: str
+    turnover_top10_days: int
+    gain_top10_count_30d: int
+    limit_up_breadth_count_30d: int
+    recent_pct_chg: float
+    representative_stocks: list[str]
+    performance_windows: dict[str, float] = field(default_factory=dict)
+    rank_windows: dict[str, int] = field(default_factory=dict)
+    data_source: str = "fixture"
+    window: str = "30d"
+
+
+@dataclass(frozen=True)
+class SectorValidation:
+    sector: str
+    level: str
+    rules: dict[str, bool]
+    reasons: list[str]
+    needs_llm: bool = False
 
 
 class HasSectorSnapshots(Protocol):
@@ -75,3 +115,56 @@ def validate_mainline_sectors(
             needs_llm=level == "弱主线",
         )
     return result
+
+
+class SectorStore:
+    """统一板块数据访问的深模块。
+
+    合并 SectorCache（行业归属）和 SectorBarCache（板块K线）
+    为单一入口。调用方只需 import SectorStore。
+    """
+
+    def __init__(self, db_path: Path | str, bars_db_path: Path | str | None = None):
+        self._cache = SectorCache(Path(db_path))
+        bars_path = Path(bars_db_path) if bars_db_path else Path(db_path).parent / "sector_bars.db"
+        self._bars_cache = SectorBarCache(bars_path)
+
+    # ── 行业归属 ──────────────────────────────────────
+    def get_industry(self, code: str) -> str:
+        return self._cache.get_industry(code)
+
+    def get_all_mapping(self) -> dict[str, list[str]]:
+        return self._cache.get_all_mapping()
+
+    def get_industry_mapping(self) -> dict[str, str]:
+        return self._cache.get_industry_mapping()
+
+    def needs_refresh(self) -> bool:
+        return self._cache.needs_refresh()
+
+    def refresh(self) -> None:
+        self._cache.refresh()
+
+    # ── 板块K线 ────────────────────────────────────────
+    def sector_bars(self, sector_code: str, max_date: str | None = None):
+        return self._bars_cache.sector_bars(sector_code, max_date)
+
+    def sector_bars_with_counts(self, sector_code: str, max_date: str | None = None):
+        return self._bars_cache.sector_bars_with_counts(sector_code, max_date)
+
+    def ensure_sectors(self, sector_codes: list[str]) -> None:
+        self._bars_cache.ensure_sectors(sector_codes)
+
+    # ── 通用 ──────────────────────────────────────────
+    def stats(self) -> dict:
+        return {"cache": self._cache.stats(), "bars": self._bars_cache.stats()}
+
+    def close(self) -> None:
+        self._cache.close()
+        self._bars_cache.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
