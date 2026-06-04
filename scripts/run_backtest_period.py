@@ -219,6 +219,47 @@ def desc(values: list[float]) -> dict:
     }
 
 
+# ─── 缓存新鲜度检测 ──────────────────────────────────────────
+
+
+def _check_cache_freshness(cache: LocalBarCache, sample_symbols: list[str]) -> bool:
+    """检测缓存新鲜度，必要时提示用户是否增量更新。
+
+    Returns:
+        skip_incremental: True 表示跳过增量更新
+    """
+    cache_max_date = cache.global_max_date()
+    if cache_max_date is None:
+        return False  # 无数据，必须下载
+
+    from datetime import date as _date
+
+    today = _date.today()
+    max_d = _date.fromisoformat(cache_max_date)
+    days_behind = (today - max_d).days
+
+    if days_behind <= 5:
+        return False  # 足够新，正常增量
+
+    est_sec = len(sample_symbols) * 0.002
+    print(
+        f"\n  ⚠ 缓存最新日期 {cache_max_date}，落后当前 {days_behind} 天",
+        file=sys.stderr,
+    )
+    print(
+        f"  增量更新 {len(sample_symbols)} 只约需 {est_sec:.0f}s",
+        file=sys.stderr,
+    )
+    try:
+        choice = input("  是否增量更新？(y/n，默认 y): ").strip().lower()
+    except EOFError:
+        choice = "y"
+    if choice == "n":
+        print("  跳过增量更新，使用现有缓存", file=sys.stderr)
+        return True
+    return False
+
+
 # ─── 主回测 ──────────────────────────────────────────────────
 
 
@@ -256,8 +297,9 @@ def run_backtest(
     db_path = Path(cache_path) if cache_path else ROOT / "data" / "bars.db"
     cache = LocalBarCache(db_path)
     sample_symbols = [str(s.get("code", "")) for s in sample]
+    skip_inc = _check_cache_freshness(cache, sample_symbols)
     print(f"\n  预加载缓存 ({db_path})...", file=sys.stderr)
-    cache.ensure_symbols(sample_symbols, min_bars=300)
+    cache.ensure_symbols(sample_symbols, min_bars=300, skip_incremental=skip_inc)
     cache_stats = cache.stats()
     print(
         f"  缓存就绪: {cache_stats['total_symbols']} 只, "
@@ -697,8 +739,9 @@ def run_engine_backtest(
     db_path = Path(cache_path) if cache_path else ROOT / "data" / "bars.db"
     cache = LocalBarCache(db_path)
     sample_symbols = [str(s.get("code", "")) for s in sample]
+    skip_inc = _check_cache_freshness(cache, sample_symbols)
     print(f"\n  预加载缓存 ({db_path})...", file=sys.stderr)
-    cache.ensure_symbols(sample_symbols, min_bars=300)
+    cache.ensure_symbols(sample_symbols, min_bars=300, skip_incremental=skip_inc)
     cache_stats = cache.stats()
     print(
         f"  缓存就绪: {cache_stats['total_symbols']} 只, "

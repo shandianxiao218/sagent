@@ -248,11 +248,25 @@ class LocalBarCache:
         conn.commit()
         return result
 
-    def ensure_symbols(self, symbols: list[str], min_bars: int = 250) -> dict[str, int]:
+    def global_max_date(self) -> str | None:
+        """返回缓存中全局最新日期（所有股票的最大 date）。"""
+        conn = self._get_conn()
+        row = conn.execute("SELECT MAX(date) FROM daily_bars").fetchone()
+        return row[0] if row else None
+
+    def ensure_symbols(
+        self,
+        symbols: list[str],
+        min_bars: int = 250,
+        skip_incremental: bool = False,
+    ) -> dict[str, int]:
         """确保指定股票有足够的本地缓存数据。
 
         对于已缓存的股票：只增量下载缺失的最新数据。
         对于未缓存的股票：下载 3 年数据。
+
+        Args:
+            skip_incremental: 跳过增量更新（回测时缓存够用可跳过网络请求）
 
         Returns:
             {symbol: 新增 bar 数}
@@ -277,11 +291,21 @@ class LocalBarCache:
             result.update(self.download_and_cache(full_download, offset=750))
 
         # 增量补齐：检查最新日期，下载缺失部分
-        if incremental:
-            print(f"  增量更新 {len(incremental)} 只股票...", flush=True)
+        if incremental and not skip_incremental:
+            total = len(incremental)
+            est_min = total * 0.002  # 每只约 2ms
+            print(
+                f"  增量更新 {total} 只股票（预计 {est_min:.1f}s）...",
+                flush=True,
+            )
             client = self._get_mootdx()
             updated = 0
-            for symbol in incremental:
+            for idx, symbol in enumerate(incremental, 1):
+                if idx % 200 == 0 or idx == total:
+                    print(
+                        f"    更新进度: {idx}/{total} ({idx * 100 // total}%)",
+                        flush=True,
+                    )
                 try:
                     # 取本地最新日期
                     local_max = self.max_cached_date(symbol)
