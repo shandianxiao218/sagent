@@ -1,128 +1,124 @@
-# Sagent Handoff — Session 7
+# Sagent Handoff — Session 8
 
 **日期**: 2026-06-04 · **仓库**: `D:\suishi\sagent` · **分支**: `master`
-**测试**: 104 passing (11 skipped for plotly) · **Python**: Anaconda `D:\ProgramData\anaconda3`
+**测试**: 117 passing · **Python**: Anaconda `D:\ProgramData\anaconda3`
 **Git**: 所有改动已提交并 push
 
 ---
 
 ## 本次会话摘要
 
-### 1. 🔴 接入真实 LLM API — `sagent/real_llm.py` (新文件)
-- 创建 `OpenAILLMClient`：支持智谱 GLM、DeepSeek、OpenAI 等任何 OpenAI 兼容 API
-- 环境变量配置：`SAGENT_LLM_API_KEY` / `SAGENT_LLM_BASE_URL` / `SAGENT_LLM_MODEL`
-- 双模型自动降级链：`_FallbackChain`，配置 `SAGENT_LLM_FALLBACK_*` 即可
-- `scan.py` 自动检测：有 API key 用 LLM，无 key 用规则引擎
-- 回测脚本 `--llm` 参数：`python scripts/run_backtest_period.py --llm`
-- JSON 解析容错：支持纯 JSON、markdown 代码块、混合文字
-- 新增 7 个测试用例
+### 1. ✅ 格式化改动提交
+- ruff 自动格式化的 5 个文件已提交推送（commit `27bb677`）
 
-### 2. 🔴 行业归属优化 — SectorStore 缓存加速
-- 回测脚本中 `get_stock_industry()` 从逐只 AKShare 查询改为 `SectorCache` 批量加载
-- mootdx TCP `block()` 一次获取全市场行业-股票映射，缓存到 SQLite
-- 修复循环导入：`sector_bars_cache.py` 改为从 `market.py` 直接导入 `DailyBar`
+### 2. ✅ 回测缓存速度优化 — `sagent/cache.py` + `scripts/run_backtest_period.py`
+- **根因**: `ensure_symbols()` 每次都逐只做 mootdx TCP 网络请求做增量更新，3981 只需 ~3 分钟
+- **修复**:
+  - `cache.py` 新增 `global_max_date()` 方法 + `skip_incremental` 参数
+  - `ensure_symbols` 增量更新时显示进度（每 200 只 + 完成）
+  - `_check_cache_freshness()` 辅助函数：缓存落后 >5 天时提示用户选择是否更新
+  - 两处调用点（`run_backtest` + `run_engine_backtest`）均已更新
+- **效果**: 缓存新鲜时 3981 只从 ~3min → **~5s**
 
-### 3. 🟡 信号质量优化 — 降低止损率
-- `simulated_llm_judge` v2 规则引擎：
-  - 新增 R 值过滤：R < 1.5 放弃（上行空间不足）
-  - 回撤 >55% 放弃（趋势可能已破坏）
-  - 放量确认阈值收紧：回撤 ≤40%（原 45%）才允许买入
-  - 买入置信度从 0.65-0.70 提升到 0.70-0.75
+### 3. ✅ LLM 规则引擎 v3 — `sagent/technical.py`（核心修复）
+- **问题**: v2 规则「涨幅高=透支=放弃」完全错误。回测数据显示：
+  - 涨幅 80-100% 胜率 50%，均收 +4.4%
+  - 涨幅 100-120% 胜率 55%，均收 +6.1%
+  - 涨幅 120-150% 胜率 43%，均收 +9.4%
+  - 而涨幅 50-80%（v2 的「买入」区间）胜率才 34%
+- **v3 核心逻辑**:
+  1. 回撤 >55% → 放弃（趋势破坏）
+  2. 缩量 <0.7x + 无结构转折点 → 放弃
+  3. 放量 >1.2x + 回调 <42% → 买入（最强信号）
+  4. 涨幅 >80% + 放量 >1.0x + 回调 <50% → 买入（强趋势回踩）
+  5. 涨幅 ≤80% + 放量 + 浅回调 → 买入
+  6. 其他 → 观察
+- **移除**: R 值过滤、高价股过滤、涨幅上限过滤
+- **新增**: 结构转折点检测（从 K 线描述中匹配关键词）
+- **验证**: 「买入」79 笔胜率 44% vs「观察」86 笔胜率 37%，方向正确
 
-### 4. 🟡 组合管理优化 — 周限放宽
-- 每周新开仓上限从 2 笔放宽到 3 笔
-- `config/default.json` 和 `portfolio.py` `confirm_buy` 默认值同步更新
-- 测试用例同步更新
+### 4. ✅ 回测报表 K 线图按钮 — `scripts/backtest_report.py`
+- 每笔交易操作列新增「K线」按钮
+- 点击在新窗口打开 `output/charts/combined_{symbol}_{date}.html`
+- 修复日期格式：图表文件名用 `20260409` 格式，从 `signal_date` 去掉横线
 
-### 5. 🟡 缓存预热脚本 — `scripts/warmup_cache.py` (新文件)
-- 支持三个维度的缓存预热：个股 K 线、行业映射、板块指数 K 线
-- 灵活参数：`--all / --stocks / --sectors / --sector-bars`
-- `--sample N` 控制预热股票数量
+### 5. ✅ 完整回测执行（v3 规则）
+- 3981 只股票，2025-12-01 ~ 2026-05-31
+- 结果：165 笔交易，胜率 40.6%，均收 +2.66%，组合收益 -9.09%
+- 图表 165 个 HTML + 组合仪表盘 → `output/charts/`
+- 报表 Markdown + HTML → `output/backtest.md` / `output/backtest.html`
 
-### 6. 🟢 PowerShell GBK 乱码 / LSP warnings
-- 创建 `scripts/fix_console_encoding.py` 编码修复工具
-- 回测脚本入口自动修复 Windows 终端编码（`PYTHONIOENCODING=utf-8`）
-- `sector_bars_cache.py` 修复循环导入（LSP warnings 根因）
+### 6. ✅ 今日扫描（2026-06-04）
+- 8 只候选股全部「买入」，但所有板块「非主线」
+- 推荐：301070 开勒股份（放量 1.69x）、300720 海川智能（放量 1.52x）
+- 用户尚未确认 apply_decision
 
 ---
 
 ## 文件改动清单
 
-| 文件 | 角色 | 改动类型 |
-|------|------|---------|
-| `sagent/real_llm.py` | 真实 LLM API 客户端 | **新增** |
-| `scripts/warmup_cache.py` | 缓存预热脚本 | **新增** |
-| `scripts/fix_console_encoding.py` | 编码修复工具 | **新增** |
-| `sagent/scan.py` | +LLM 自动检测 + llm_status | 修改 |
-| `sagent/technical.py` | 信号质量优化 v2 | 修改 |
-| `sagent/portfolio.py` | 周限 2→3 | 修改 |
-| `sagent/sector_bars_cache.py` | 循环导入修复 | 修改 |
-| `sagent/sector.py` | 格式修复 | 修改 |
-| `config/default.json` | 周限 2→3 | 修改 |
-| `scripts/run_backtest_period.py` | +真实 LLM +SectorCache +编码修复 | 修改 |
-| `scripts/generate_charts.py` | 格式修复 | 修改 |
-| `tests/test_sagent_behaviors.py` | +7 个 LLM 测试 +周限测试更新 | 修改 |
+| 文件 | 改动 |
+|------|------|
+| `sagent/cache.py` | +`global_max_date()` + `skip_incremental` 参数 + 进度显示 |
+| `sagent/technical.py` | 规则引擎 v2→v3（核心逻辑重写） |
+| `scripts/run_backtest_period.py` | +`_check_cache_freshness()` + 两处调用更新 |
+| `scripts/backtest_report.py` | K 线图按钮（日期格式修复） |
 
 ---
 
-## LLM API 配置说明
+## 回测关键数据（v3 规则）
 
-```bash
-# 环境变量配置（任选其一）
-set SAGENT_LLM_API_KEY=your_api_key
-set SAGENT_LLM_BASE_URL=https://open.bigmodel.cn/api/paas/v4   # 智谱 GLM（默认）
-set SAGENT_LLM_MODEL=glm-4-flash                                # 模型名（默认）
-
-# 可选：配置 fallback 模型
-set SAGENT_LLM_FALLBACK_API_KEY=your_fallback_key
-set SAGENT_LLM_FALLBACK_MODEL=deepseek-chat
-set SAGENT_LLM_FALLBACK_BASE_URL=https://api.deepseek.com/v1
-
-# 使用真实 LLM 进行回测
-python scripts/run_backtest_period.py --llm --engine --cache data/bars.db
+```
+165 笔交易 | 胜率 40.6% | 均收 +2.66% | 组合 -9.09%
+止损 99 笔 (60%) 均亏 -7.93% | 自然到期 66 笔 (40%) 均赚 +18.55%
+半仓止盈触发 39 笔 (23.6%) 均收 +27.31%
+买入: 79 笔, 胜率 44%, 均收 +2.55%
+观察: 86 笔, 胜率 37%, 均收 +2.76%
+月度: 12月 59% → 2月 15% → 4月 73%
 ```
 
 ---
 
-## 回测标准流程（已写入 AGENTS.md）
+## 已知问题 & 后续优化方向
 
-```bash
-# 1. 回测（~10s，3981只）
-python scripts/run_backtest_period.py --start 2025-12-01 --end 2026-05-31 \
-  --sample 5500 --engine --cache data/bars.db --output output/backtest.json
+### 🔴 高优先级
+1. **组合收益仍为 -9.09%** — 虽然逐笔均收 +2.66% 为正，但组合管理层面亏损。原因：
+   - 止损率 60% 过高，需进一步加强入场确认
+   - 组合管理可能有仓位/资金分配问题
+   - 建议分析 `backtest_portfolio.py` 的仓位逻辑
 
-# 2. 生成图（~30s，从缓存加载）
-python scripts/generate_charts.py --input output/backtest.json --cache data/bars.db --output-dir output/charts
+2. **1-7 天退出胜率仅 1.6%** — 早期退出的 61 笔几乎全部亏损。入场时机偏早。
+   - 可考虑：等待收盘确认突破，而非信号当天就买入
+   - 或增加「次日确认」逻辑
 
-# 3. 生成报表（<1s，同时输出 MD + HTML）
-python scripts/backtest_report.py --input output/backtest.json
-```
+3. **回测引擎不区分 LLM 判断** — 所有信号都参与交易，LLM 判断仅用于统计
+   - 应该只交易「买入」信号，「放弃」不参与
+   - 需改 `run_backtest_period.py` 的交易过滤逻辑
 
----
+### 🟡 中优先级
+4. **大盘过滤** — 2 月胜率 15% 明显是大盘系统性下跌。加沪深300 MA20 过滤
+5. **止损收窄** — 55 笔打绝对止损 10%，可以收窄到 7-8% 测试
+6. **放量要求** — 回测显示量比 >1.2 的胜率明显高于缩量的
 
-## 待办事项（已全部完成）
-
-~~1. 🔴 接入真实 LLM API~~ ✅
-~~2. 🔴 行业归属优化~~ ✅
-~~3. 🟡 信号质量优化~~ ✅
-~~4. 🟡 组合管理优化~~ ✅
-~~5. 🟡 缓存预热脚本~~ ✅
-~~6. 🟢 PowerShell GBK 乱码~~ ✅
-
-### 后续优化方向
-- 安装 plotly 以启用图表测试
-- 使用真实 LLM API 跑完整回测，对比规则引擎 vs LLM 精确率
-- 根据回测结果进一步调整信号阈值
-- 配置 Windows Task Scheduler 自动运行 `/scan`
+### 🟢 低优先级
+7. **用真实 LLM API 对比回测** — 配置 `SAGENT_LLM_API_KEY` 后跑 `--llm` 模式
+8. **Windows Task Scheduler 自动化** — 每日自动运行 `/scan`
 
 ---
 
-## 已知陷阱
+## 技术备忘
 
-- **models.py re-export**: `from sagent.models import ...` 仍有效。新代码应直接 import 领域模块
-- **SectorStore 是 Facade**: 内部委托给 SectorCache 和 SectorBarCache
-- **防未来函数**: 回测 K 线通过 `daily_bars_up_to(symbol, end_date)` SQL 截断
-- **PowerShell `&&` 不工作**: 用 `;` 或分步执行
-- **临时文件规则**: 所有产出必须放 `output/`，见 AGENTS.md
-- **plotly 未安装**: 图表相关测试需 `pip install plotly`，不影响核心功能
-- **LLM 无 key 时**: 自动 fallback 到规则引擎，无需额外配置
+- **PowerShell 不支持 `&&`** — 用 `;` 或分步执行
+- **`ctx_execute` 超时** — 长任务（>2min）用 `Start-Process` 后台 + 轮询文件
+- **回测三步流程**: 回测 → 生成图 → 生成报表（见 AGENTS.md）
+- **图表文件名**: `combined_{symbol}_{YYYYMMDD}.html`（日期无横线）
+- **mootdx import 警告**: LSP 报错但运行时正常，不影响功能
+
+---
+
+## Suggested Skills
+
+- `/scan` 或 `prepare_scan` — 每日扫描信号
+- `analyze_stock` — 个股 K 线分析
+- `apply_decision` — 确认交易写入 portfolio
+- `check_portfolio` — 查看持仓状态
