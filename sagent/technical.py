@@ -184,21 +184,24 @@ def check_signal_from_closes(closes: list[float], idx: int) -> dict | None:
 
 
 def simulated_llm_judge(signal: dict, kline_desc_text: str, key_low: float) -> dict:
-    """模拟 LLM 形态判断逻辑（规则引擎 v2 — 降低止损率）。
+    """模拟 LLM 形态判断逻辑（规则引擎 v3 — 回测数据驱动）。
 
-    基于回测统计优化后的关键模式：
-    1. 涨幅 >100% → 放弃（涨幅透支）
-    2. 涨幅 80-100% + 深回撤 >45% → 放弃
-    3. R 值 < 1.5 → 放弃（上行空间不足，止损概率高）
-    4. 缩量 <0.8 倍 + 突破不确认 → 观察
-    5. 回撤 >50% → 放弃（趋势可能已破坏）
-    6. 放量 >1.2 倍 + 涨幅 50-80% + 回调健康 → 买入
-    7. 其他 → 观察
+    基于 2025-12~2026-05 回测 165 笔交易的关键发现：
+    - 涨幅 80%+ 胜率 50-55%（趋势强劲），不应因涨幅高而放弃
+    - 涨幅 50-80% 反而胜率仅 34%
+    - 真正的杀手是：缩量突破（量比<0.8）+ 深回撤（>55%）
+    - 放量（>1.2x）+ 浅回调（<40%）是最强组合
+
+    决策逻辑：
+    1. 回撤 >55% → 放弃（趋势破坏）
+    2. 量比 <0.7 + 无明确转折点 → 放弃（突破无确认）
+    3. 放量 >1.2 + 回调 <42% → 买入（最强信号）
+    4. 放量 >1.0 + 回调 <50% + 涨幅 >80% → 买入（强趋势回踩）
+    5. 量比 0.7-1.0 → 观察（需确认）
+    6. 其他 → 观察
     """
     rise = signal["rise_60d"]
     pullback = signal["pullback_ratio"]
-    entry = signal["entry_price"]
-    high = signal["high_60"]
 
     # 提取量比（从 K 线描述中）
     volume_ratio = 1.0
@@ -210,62 +213,66 @@ def simulated_llm_judge(signal: dict, kline_desc_text: str, key_low: float) -> d
         except (ValueError, IndexError):
             pass
 
-    # 从描述中提取 R 值
-    r_ratio = 0.0
-    if "盈亏比 R=" in kline_desc_text or "R=2.5" in kline_desc_text:
-        try:
-            stop_loss = max(entry * 0.90, key_low * 0.97)
-            risk = entry - stop_loss
-            if risk > 0:
-                r_ratio = (high - entry) / risk
-        except (ValueError, ZeroDivisionError):
-            pass
-
-    at_high = entry >= high * 0.98
+    # ── 检测是否有明确结构转折点 ──
+    has_turn = (
+        "结构转折低点" in kline_desc_text
+        or "更低的低点" in kline_desc_text
+    )
 
     reasons = []
     action = "观察"
     confidence = 0.5
 
-    # ── 硬性拒绝条件（降低止损率） ──────────────────────────
-    if rise > 1.2:
+    # ── 1. 硬性拒绝（趋势已破坏） ─────────────────────────
+    if pullback > 0.55:
         action = "放弃"
-        confidence = 0.85
-        reasons.append(f"涨幅{rise:.0%}极高，严重透支")
-    elif rise > 0.8 and pullback > 0.45:
-        action = "放弃"
-        confidence = 0.75
-        reasons.append(f"涨幅{rise:.0%}偏高且回撤{pullback:.0%}过深")
-    elif pullback > 0.55:
-        action = "放弃"
-        confidence = 0.7
+        confidence = 0.80
         reasons.append(f"回撤{pullback:.0%}过深，趋势可能已破坏")
-    elif r_ratio < 1.5 and r_ratio > 0:
+    # ── 2. 缩量 + 无转折点 → 放弃 ─────────────────────────
+    elif volume_ratio < 0.7 and not has_turn:
         action = "放弃"
-        confidence = 0.65
-        reasons.append(f"盈亏比 R={r_ratio:.1f} 过低（<1.5），上行空间不足")
-    elif at_high and volume_ratio < 0.8:
-        action = "观察"
-        confidence = 0.5
-        reasons.append("阶段高点附近缩量，突破不确认")
-    elif rise <= 0.8 and volume_ratio >= 1.2 and pullback <= 0.40:
-        action = "买入"
-        confidence = 0.75
-        reasons.append(
-            f"涨幅{rise:.0%}温和，放量{volume_ratio:.1f}倍确认突破，回调{pullback:.0%}健康"
-        )
-    elif rise <= 0.65 and pullback <= 0.35 and volume_ratio >= 1.0:
-        action = "买入"
         confidence = 0.70
-        reasons.append(f"涨幅{rise:.0%}温和，回调{pullback:.0%}浅，形态完整")
-    elif entry > 100 and rise > 0.8:
-        action = "放弃"
-        confidence = 0.7
-        reasons.append("高价股涨幅过大，流动性风险")
+        reasons.append(
+            f"缩量{volume_ratio:.1f}倍且无结构转折点，突破无确认"
+        )
+    # ── 3. 最强信号：放量 + 浅回调 → 买入 ─────────────────
+    elif volume_ratio >= 1.2 and pullback <= 0.42:
+        action = "买入"
+        confidence = 0.78
+        reasons.append(
+            f"放量{volume_ratio:.1f}倍确认突破，回调{pullback:.0%}健康"
+        )
+    # ── 4. 强趋势回踩：涨幅大 + 放量 + 回调适中 → 买入 ────
+    elif rise > 0.8 and volume_ratio >= 1.0 and pullback <= 0.50:
+        action = "买入"
+        confidence = 0.74
+        reasons.append(
+            f"强趋势涨幅{rise:.0%}回踩，放量{volume_ratio:.1f}倍，"
+            f"回调{pullback:.0%}"
+        )
+    # ── 5. 温和涨幅 + 放量 + 浅回调 → 买入 ─────────────────
+    elif rise <= 0.8 and volume_ratio >= 1.0 and pullback <= 0.40:
+        action = "买入"
+        confidence = 0.72
+        reasons.append(
+            f"涨幅{rise:.0%}温和，放量{volume_ratio:.1f}倍，"
+            f"回调{pullback:.0%}浅"
+        )
+    # ── 6. 缩量但有明确转折 → 观察（有希望） ───────────────
+    elif volume_ratio < 1.0 and has_turn:
+        action = "观察"
+        confidence = 0.55
+        reasons.append(
+            f"缩量{volume_ratio:.1f}倍但有结构转折点，需放量确认"
+        )
+    # ── 7. 缩量且无转折 → 观察（偏弱） ─────────────────────
     else:
         action = "观察"
-        confidence = 0.5
-        reasons.append(f"涨幅{rise:.0%}，回撤{pullback:.0%}，信号中性")
+        confidence = 0.45
+        reasons.append(
+            f"量能{volume_ratio:.1f}倍偏弱，涨幅{rise:.0%}，"
+            f"回撤{pullback:.0%}"
+        )
 
     return {
         "action": action,
