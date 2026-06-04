@@ -19,16 +19,24 @@ config/local.json
 .scratch/
 .DS_Store
 
-# 回测输出（可重新生成）
-backtest_result*.json
-backtest_oct25*.json
-backtest_llm_*.json
-backtest_72_*.json
+# 所有回测产出 → output/
+# 回测 JSON/HTML/MD/图表统一输出到 output/ 目录
+output/
 
+# 旧格式临时文件（根目录散落的回测结果）
+backtest_*.json
+backtest_*.html
+backtest_*.md
+charts/
+
+# 临时脚本和调试文件
 tmp_*.py
 tmp_*.md
-
-charts/
+close_issues.py
+progress.md
 
 # 数据缓存
 data/
+
+# pi-lens 缓存
+.pi-lens/

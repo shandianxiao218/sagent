@@ -93,7 +93,6 @@ def fetch_bars(symbol: str, offset: int = 370) -> list[DailyBar]:
 # ─── 信号检测 ─────────────────────────────────────────────────
 
 
-
 def forward_returns(bars: list[DailyBar], signal_idx: int) -> dict:
     entry_price = bars[signal_idx].close
     result: dict = {"entry_price": round(entry_price, 2)}
@@ -989,7 +988,7 @@ def main() -> None:
             initial_cash=args.initial_cash,
             cache_path=args.cache,
         )
-        default_output = ROOT / "backtest_engine_v1.json"
+        default_output = ROOT / "output" / "backtest_engine.json"
     else:
         result = run_backtest(
             start_date=args.start,
@@ -998,10 +997,11 @@ def main() -> None:
             min_avg_amount=args.min_amount,
             cache_path=args.cache,
         )
-        default_output = ROOT / "backtest_oct25_jun26.json"
+        default_output = ROOT / "output" / "backtest.json"
 
     text = json.dumps(result, ensure_ascii=False, indent=2, default=str)
     out_path = Path(args.output) if args.output else default_output
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(text, encoding="utf-8")
     print(f"\n结果已写入 {out_path}", file=sys.stderr)
 

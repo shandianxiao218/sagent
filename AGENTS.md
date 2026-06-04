@@ -9,6 +9,26 @@
 - 保证本地和远程始终同步，避免 stash 或未推送的积压。
 - 提交信息使用中文，格式：`feat: / fix: / docs: 描述`。
 
+## 临时文件规则
+
+**根目录禁止放置任何临时产出文件。** 所有可重新生成的产出统一放入 `output/` 目录。
+
+| 类型 | 存放位置 | 示例 |
+|------|---------|------|
+| 回测 JSON | `output/` | `output/backtest_6m.json` |
+| 回测 HTML 报表 | `output/` | `output/backtest_6m.html` |
+| 回测 Markdown 报表 | `output/` | `output/backtest_6m.md` |
+| 图表 HTML | `output/charts/` | `output/charts/combined_000001_20260601.html` |
+| 临时脚本 | `output/` | `output/tmp_analysis.py` |
+| 临时调试输出 | `output/` | `output/debug.md` |
+
+规则：
+- `output/` 目录已在 `.gitignore` 中，不会被 git 追踪。
+- 回测脚本的 `--output` 参数应指向 `output/`。
+- 图表脚本的 `--output-dir` 参数应指向 `output/charts/`。
+- 不要在根目录创建 `backtest_*.json`、`charts/`、`tmp_*.py` 等临时文件。
+- `portfolio.json` 例外：它是运行时状态，已单独 gitignore。
+
 ## Handoff 规则
 
 - handoff 文档统一保存到 `docs/HANDOFF.md`（覆盖更新），**不要**保存到系统临时目录。
@@ -40,9 +60,9 @@ Issues 和 PRD 统一发布到 GitHub Issues：`shandianxiao218/sagent`。详见
 ### Backtest pipeline
 
 回测必须执行完整三步流程（回测→生成图→生成报表）：
-1. **回测**：`python scripts/run_backtest_period.py --engine --cache data/bars.db --output <json>`
-2. **生成图**：`python scripts/generate_charts.py --input <json> --cache data/bars.db`
-3. **生成报表**：`python scripts/backtest_report.py --input <json>`（同时生成 Markdown + HTML）
+1. **回测**：`python scripts/run_backtest_period.py --engine --cache data/bars.db --output output/backtest.json`
+2. **生成图**：`python scripts/generate_charts.py --input output/backtest.json --cache data/bars.db --output-dir output/charts`
+3. **生成报表**：`python scripts/backtest_report.py --input output/backtest.json`（同时生成 Markdown + HTML）
 
 所有回测数据使用 SQLite 缓存（`data/bars.db`），防未来函数。详见 `sagent/cache.py` 的 `daily_bars_up_to` / `bulk_closes_up_to`。
 

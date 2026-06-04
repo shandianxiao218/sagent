@@ -86,7 +86,7 @@ def main() -> None:
         print(f"错误: 未找到回测文件，请用 --input 指定")
         sys.exit(1)
 
-    output_dir = Path(args.output_dir) if args.output_dir else ROOT / "charts"
+    output_dir = Path(args.output_dir) if args.output_dir else ROOT / "output" / "charts"
     output_dir.mkdir(exist_ok=True)
 
     with open(result_path, encoding="utf-8") as f:
@@ -121,7 +121,9 @@ def main() -> None:
                 sector_map[sym] = get_blocks(sym)
             except Exception:
                 sector_map[sym] = {"industry": "未知", "concepts": []}
-        ok_count = sum(1 for v in sector_map.values() if v.get("industry", "未知") != "未知")
+        ok_count = sum(
+            1 for v in sector_map.values() if v.get("industry", "未知") != "未知"
+        )
         print(f"  {ok_count}/{len(symbols)} 只获取成功")
     except Exception as e:
         print(f"  板块获取失败（{e}），将跳过板块信息")
