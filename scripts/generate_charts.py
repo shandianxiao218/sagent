@@ -86,7 +86,9 @@ def main() -> None:
         print(f"错误: 未找到回测文件，请用 --input 指定")
         sys.exit(1)
 
-    output_dir = Path(args.output_dir) if args.output_dir else ROOT / "output" / "charts"
+    output_dir = (
+        Path(args.output_dir) if args.output_dir else ROOT / "output" / "charts"
+    )
     output_dir.mkdir(exist_ok=True)
 
     with open(result_path, encoding="utf-8") as f:

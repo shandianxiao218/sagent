@@ -8,6 +8,7 @@ from .kline import describe_stock
 from .llm import FallbackLLMClient, LLMClient, judge_sector, judge_stock
 from .notify import send_feishu_summary
 from .portfolio import PortfolioStore, monitor_positions
+from .real_llm import create_llm_client, llm_status
 from .sector import summarize_sectors, validate_mainline_sectors
 from .technical import filter_stock_pool, technical_candidates
 
@@ -21,11 +22,10 @@ def run_scan(
 ) -> dict:
     """执行完整扫描流程。
 
-    llm_client:
-      - None（默认）：使用规则引擎 fallback，不调用任何 LLM API。
-        适合 fixture 测试和纯量化场景。
-      - FallbackLLMClient 或其他 LLMClient 实例：由调用方注入。
-        pi 环境下由 extension 注入 pi 的模型能力。
+    llm_client 优先级：
+      1. 显式传入的 llm_client 参数（最高优先）
+      2. 环境变量配置的真实 LLM API（SAGENT_LLM_API_KEY）
+      3. 规则引擎 fallback（默认，无 API 时）
     """
     config = load_config(config_path, env=env)
     model_name = config.models.default_judgement_model
@@ -34,6 +34,13 @@ def run_scan(
         if config.models.optional_judgement_models
         else model_name
     )
+
+    # 自动创建 LLM 客户端（如果环境变量已配置且未显式传入）
+    if llm_client is None:
+        llm_client = create_llm_client(env)
+
+    llm_info = llm_status(env)
+
     portfolio = PortfolioStore(portfolio_path).load_or_create()
 
     current_prices = {
@@ -104,8 +111,9 @@ def run_scan(
         else {"ok": True, "mode": "disabled"}
     )
     return {
-        "mode": "fixture",
+        "mode": "fixture" if llm_client is None else "llm",
         "judgement_model": model_name,
+        "llm_status": llm_info,
         "portfolio_suggestions": [asdict(item) for item in portfolio_suggestions],
         "candidates": candidates,
         "excluded": [asdict(item) for item in pool.excluded],

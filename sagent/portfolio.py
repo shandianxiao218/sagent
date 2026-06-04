@@ -103,7 +103,7 @@ def confirm_buy(
     key_low: float,
     trade_date: str,
     position_ratio: float = 0.1,
-    max_weekly_open: int = 2,
+    max_weekly_open: int = 3,
 ) -> BuyResult:
     week = _week_id(trade_date)
     if portfolio.week_id != week:

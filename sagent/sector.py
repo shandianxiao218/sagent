@@ -126,7 +126,11 @@ class SectorStore:
 
     def __init__(self, db_path: Path | str, bars_db_path: Path | str | None = None):
         self._cache = SectorCache(Path(db_path))
-        bars_path = Path(bars_db_path) if bars_db_path else Path(db_path).parent / "sector_bars.db"
+        bars_path = (
+            Path(bars_db_path)
+            if bars_db_path
+            else Path(db_path).parent / "sector_bars.db"
+        )
         self._bars_cache = SectorBarCache(bars_path)
 
     # ── 行业归属 ──────────────────────────────────────

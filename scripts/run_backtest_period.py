@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import random
 import time
 import sys
@@ -25,12 +26,56 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+# 修复 Windows 终端中文编码
+if sys.platform == "win32":
+    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+
 from sagent.backtest_engine import simulate_trade
 from sagent.backtest_portfolio import run_portfolio_backtest
 from sagent.cache import LocalBarCache
 from sagent.kline import describe_stock
 from sagent.models import DailyBar
+from sagent.real_llm import create_llm_client, llm_status
 from sagent.technical import check_signal_from_closes, simulated_llm_judge
+
+# ─── LLM 判断调度 ────────────────────────────────────────────
+# 全局 LLM 客户端，由 main() 根据命令行参数初始化
+_llm_client = None
+
+
+def _judge_signal(metrics: dict, kline_text: str, key_low: float) -> dict:
+    """统一 LLM 判断入口：优先真实 LLM，回退规则引擎。"""
+    global _llm_client
+    if _llm_client is not None:
+        from sagent.llm import PromptRequest, build_stock_prompt
+        from sagent.signal import KlineDescription
+        desc = KlineDescription(
+            symbol="", text=kline_text, key_low=key_low,
+            risk_price=0, fields={},
+        )
+        from sagent.portfolio import Decision
+        sector_d = Decision(
+            action="主线", reason="回测简化", model="backtest",
+        )
+        prompt = build_stock_prompt(desc, sector_d)
+        try:
+            result = _llm_client.complete(
+                PromptRequest(model="backtest", prompt=prompt, purpose="stock")
+            )
+            if not result.get("_parse_error"):
+                return {
+                    "action": result.get("action", "观察"),
+                    "reason": result.get("reason", ""),
+                    "confidence": float(result.get("confidence", 0.5)),
+                    "key_low": result.get("key_low", key_low),
+                }
+        except Exception as e:
+            print(f"  LLM API 错误，回退规则引擎: {e}", file=sys.stderr)
+    return simulated_llm_judge(metrics, kline_text, key_low)
 
 # ─── 行业归属获取（简化版 L6）─────────────────────────────────
 # 注意：回测中的 L6 是简化版，仅获取行业归属并做集中度统计，
@@ -38,10 +83,15 @@ from sagent.technical import check_signal_from_closes, simulated_llm_judge
 
 
 def get_stock_industry(symbol: str) -> str:
-    """获取股票所属申万行业（通过 AKShare 东方财富接口）。
+    """获取股票所属申万行业。
 
-    网络获取可能失败，fallback 到 "未知"。
+    优先使用 SectorCache（mootdx TCP 一次性加载全量映射），
+    回退到 AKShare 单只查询。
     """
+    global _sector_cache
+    if _sector_cache is not None:
+        return _sector_cache.get_industry(symbol)
+    # 回退到 AKShare
     import akshare as ak
 
     try:
@@ -52,6 +102,24 @@ def get_stock_industry(symbol: str) -> str:
     except Exception:
         pass
     return "未知"
+
+
+# 全局 SectorCache，由 main() 初始化
+_sector_cache = None
+
+
+def init_sector_cache() -> dict:
+    """初始化 SectorCache，返回行业映射 dict。一次调用加载全量映射。"""
+    global _sector_cache
+    from sagent.sector_cache import SectorCache
+    db_path = ROOT / "data" / "sector.db"
+    _sector_cache = SectorCache(db_path)
+    if _sector_cache.needs_refresh():
+        print("  SectorCache 无数据，正在从 mootdx 加载全量行业映射...", file=sys.stderr)
+        _sector_cache.refresh()
+    stats = _sector_cache.stats()
+    print(f"  SectorCache 就绪: {stats['total_symbols']} 只, {stats['total_sectors']} 个板块", file=sys.stderr)
+    return stats
 
 
 # ─── 数据获取 ─────────────────────────────────────────────────
@@ -149,6 +217,7 @@ def run_backtest(
     min_forward: int = 20,
     min_avg_amount: float = 100_000_000,
     cache_path: str | None = None,
+    use_real_llm: bool = False,
 ) -> dict:
     print(f"=== 定向时间区间回测: {start_date} ~ {end_date} ===", file=sys.stderr)
     print(
@@ -201,7 +270,7 @@ def run_backtest(
     t0 = time.perf_counter()
     scan_hits: list[dict] = []  # {symbol, name, signal_date, check_idx, metrics}
     short_bars = 0
-    for i, stock in enumerate(sample):
+    for _i, stock in enumerate(sample):
         symbol = str(stock.get("code", ""))
         name = str(stock.get("name", ""))
 
@@ -272,7 +341,7 @@ def run_backtest(
         fwd = forward_returns(bars, check_idx)
         window_bars = bars[: check_idx + 1]
         desc_result = describe_stock(symbol, window_bars)
-        llm_result = simulated_llm_judge(
+        llm_result = _judge_signal(
             hit["metrics"], desc_result.text, desc_result.key_low
         )
 
@@ -308,11 +377,10 @@ def run_backtest(
 
     # 3. 获取行业归属（简化版 L6）
     print("\n[3/7] 获取行业归属（简化版 L6）...", file=sys.stderr)
+    init_sector_cache()
     unique_symbols = list({s["symbol"] for s in all_signals})
     industry_cache: dict[str, str] = {}
-    for idx_us, sym in enumerate(unique_symbols):
-        if (idx_us + 1) % 20 == 0:
-            print(f"  行业查询: {idx_us + 1}/{len(unique_symbols)}", file=sys.stderr)
+    for sym in unique_symbols:
         industry_cache[sym] = get_stock_industry(sym)
     print(
         f"  完成: {len(industry_cache)} 只股票, "
@@ -744,7 +812,7 @@ def run_engine_backtest(
         desc_result = describe_stock(symbol, window_bars)
 
         # LLM 模拟判断
-        llm_result = simulated_llm_judge(
+        llm_result = _judge_signal(
             sig["metrics"], desc_result.text, desc_result.key_low
         )
 
@@ -977,7 +1045,23 @@ def main() -> None:
         default=None,
         help="SQLite 缓存文件路径（默认 data/bars.db）",
     )
+    parser.add_argument(
+        "--llm",
+        action="store_true",
+        help="使用真实 LLM API 进行形态判断（需配置 SAGENT_LLM_API_KEY 环境变量）",
+    )
     args = parser.parse_args()
+
+    # 初始化真实 LLM 客户端
+    global _llm_client
+    if args.llm:
+        _llm_client = create_llm_client()
+        info = llm_status()
+        if info["configured"]:
+            print(f"LLM 已配置: model={info['model']}", file=sys.stderr)
+        else:
+            print("警告: --llm 但未配置 SAGENT_LLM_API_KEY，使用规则引擎", file=sys.stderr)
+            _llm_client = None
 
     if args.engine:
         result = run_engine_backtest(
@@ -996,6 +1080,7 @@ def main() -> None:
             sample_size=args.sample,
             min_avg_amount=args.min_amount,
             cache_path=args.cache,
+            use_real_llm=args.llm,
         )
         default_output = ROOT / "output" / "backtest.json"
 

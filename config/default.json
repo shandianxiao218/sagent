@@ -8,8 +8,9 @@
   "scan": {
     "market": "A-share",
     "mode": "manual-after-close",
-    "maxNewPositionsPerWeek": 2,
-    "positionSizeRatio": 0.1
+    "maxNewPositionsPerWeek": 3,
+    "positionSizeRatio": 0.1,
+    "notes": "每周最多 3 笔新开仓，单笔占总资金 10%。从 v2 起由 2 笔放宽至 3 笔，以减少空仓机会成本。"
   },
   "portfolio": {
     "path": "portfolio.json"

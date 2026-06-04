@@ -252,20 +252,29 @@ def test_portfolio_confirm_buy_enforces_10_percent_and_weekly_limit(tmp_path):
         key_low=18.8,
         trade_date="2026-05-27",
     )
+    third = confirm_buy(
+        second.portfolio,
+        symbol="000007",
+        name="样例三",
+        sector="AI应用",
+        buy_price=10,
+        key_low=9,
+        trade_date="2026-05-28",
+    )
 
     assert first.position.amount == 10_000
     assert first.position.quantity == 1000
-    assert second.portfolio.weekly_open_count == 2
+    assert third.portfolio.weekly_open_count == 3
 
     try:
         confirm_buy(
-            second.portfolio,
-            symbol="000007",
-            name="样例三",
+            third.portfolio,
+            symbol="000008",
+            name="样例四",
             sector="AI应用",
             buy_price=10,
             key_low=9,
-            trade_date="2026-05-28",
+            trade_date="2026-05-29",
         )
     except ValueError as error:
         assert "每周最多" in str(error)
@@ -3095,3 +3104,84 @@ def test_plot_combined_trade_chart_export_html(tmp_path):
     p = pathlib.Path(output)
     assert p.exists()
     assert p.stat().st_size > 1000  # 有实质内容
+
+
+# ─── 真实 LLM API 客户端测试 ───────────────────────────────────
+
+
+def test_openai_llm_client_parse_json_response():
+    """_parse_json_response 能解析各种格式的 JSON。"""
+    from sagent.real_llm import _parse_json_response
+
+    # 纯 JSON
+    r = _parse_json_response('{"action": "买入", "confidence": 0.8}')
+    assert r["action"] == "买入"
+    assert r["confidence"] == 0.8
+
+    # markdown 代码块
+    r = _parse_json_response('```json\n{"action": "观察"}\n```')
+    assert r["action"] == "观察"
+
+    # 混合文字
+    r = _parse_json_response('以下是判断：{"action": "放弃", "reason": "涨幅过大"}')
+    assert r["action"] == "放弃"
+
+
+def test_create_llm_client_returns_none_without_key(monkeypatch):
+    """无 API key 时 create_llm_client 返回 None。"""
+    monkeypatch.delenv("SAGENT_LLM_API_KEY", raising=False)
+    from sagent.real_llm import create_llm_client
+
+    client = create_llm_client({})
+    assert client is None
+
+
+def test_create_llm_client_with_key():
+    """有 API key 时返回 OpenAILLMClient。"""
+    from sagent.real_llm import create_llm_client, OpenAILLMClient
+
+    client = create_llm_client({"SAGENT_LLM_API_KEY": "test-key"})
+    assert client is not None
+    assert isinstance(client, OpenAILLMClient)
+
+
+def test_create_llm_client_with_fallback():
+    """配置了 fallback 时返回 FallbackChain。"""
+    from sagent.real_llm import create_llm_client, _FallbackChain
+
+    client = create_llm_client({
+        "SAGENT_LLM_API_KEY": "key1",
+        "SAGENT_LLM_FALLBACK_API_KEY": "key2",
+        "SAGENT_LLM_FALLBACK_MODEL": "deepseek-chat",
+    })
+    assert client is not None
+    assert isinstance(client, _FallbackChain)
+
+
+def test_llm_status_no_key():
+    """llm_status 在无 key 时显示规则引擎。"""
+    from sagent.real_llm import llm_status
+
+    status = llm_status({})
+    assert status["configured"] is False
+    assert status["model"] == "规则引擎"
+
+
+def test_llm_status_with_key():
+    """llm_status 在有 key 时显示模型名。"""
+    from sagent.real_llm import llm_status
+
+    status = llm_status({"SAGENT_LLM_API_KEY": "test"})
+    assert status["configured"] is True
+    assert status["model"] == "glm-4-flash"
+
+
+def test_scan_mode_reflects_llm_availability(tmp_path, monkeypatch):
+    """run_scan 在无 LLM key 时 mode=fixture，有 key 时 mode=llm。"""
+    monkeypatch.delenv("SAGENT_LLM_API_KEY", raising=False)
+    data = fixture_data()
+    result = run_scan(
+        data, tmp_path / "portfolio.json", Path("config/default.json"), env={}
+    )
+    assert result["mode"] == "fixture"
+    assert result["llm_status"]["configured"] is False
