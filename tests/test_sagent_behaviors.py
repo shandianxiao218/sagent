@@ -3016,3 +3016,69 @@ def test_plot_structure_chart_returns_figure():
     ann_texts = [a.text for a in layout_anns if a.text]
     ann_joined = " ".join(ann_texts)
     assert "趋势破坏" in ann_joined
+
+
+def test_plot_combined_trade_chart_returns_figure():
+    """plot_combined_trade_chart 合并三图为一，包含 K 线+标注+成交量+R 值。"""
+    import plotly.graph_objects as go
+
+    from sagent.backtest_engine import simulate_trade
+    from sagent.chart import plot_combined_trade_chart
+
+    bars = fixture_data().daily_bars("000001")
+    signal_idx = len(bars) - 30  # 留足交易天数
+    if signal_idx < 30:
+        signal_idx = len(bars) - 5
+
+    trade = simulate_trade(bars, signal_idx)
+
+    fig = plot_combined_trade_chart(
+        bars=bars,
+        signal_idx=signal_idx,
+        trade=trade,
+    )
+
+    assert isinstance(fig, go.Figure)
+    # 标题包含关键字
+    title = fig.layout.title.text
+    assert "综合图表" in title
+    assert trade.symbol in title
+
+    # 3 行子图：K 线 + 成交量 + R 值
+    # 至少有 K 线蜡烛图（3组） + 成交量 + R 值曲线 = 5 traces
+    assert len(fig.data) >= 5
+
+    # 检查水平参考线（止损、key_low、R=2.5）
+    layout_anns = fig.layout.annotations or ()
+    ann_texts = [a.text for a in layout_anns if a.text]
+    ann_joined = " ".join(ann_texts)
+    assert "止损" in ann_joined
+    assert "key_low" in ann_joined
+
+
+def test_plot_combined_trade_chart_export_html(tmp_path):
+    """plot_combined_trade_chart 可导出为 HTML 文件。"""
+    from sagent.backtest_engine import simulate_trade
+    from sagent.chart import plot_combined_trade_chart
+
+    bars = fixture_data().daily_bars("000001")
+    signal_idx = len(bars) - 30
+    if signal_idx < 30:
+        signal_idx = len(bars) - 5
+
+    trade = simulate_trade(bars, signal_idx)
+    output = str(tmp_path / "combined_test.html")
+
+    fig = plot_combined_trade_chart(
+        bars=bars,
+        signal_idx=signal_idx,
+        trade=trade,
+        output_path=output,
+    )
+
+    assert fig is not None
+    import pathlib
+
+    p = pathlib.Path(output)
+    assert p.exists()
+    assert p.stat().st_size > 1000  # 有实质内容

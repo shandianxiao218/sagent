@@ -21,10 +21,8 @@ if str(ROOT) not in sys.path:
 from sagent.backtest_portfolio import DailyNAV, PortfolioStats
 from sagent.cache import LocalBarCache
 from sagent.chart import (
+    plot_combined_trade_chart,
     plot_portfolio_dashboard,
-    plot_signal_chart,
-    plot_structure_chart,
-    plot_trade_lifecycle,
 )
 from sagent.backtest_engine import simulate_trade
 from sagent.models import DailyBar
@@ -111,9 +109,9 @@ def main() -> None:
     loaded = sum(1 for v in bars_map.values() if v)
     print(f"  加载 {loaded}/{len(symbols)} 只")
 
-    # ── 2. 信号标注图 + 波峰波谷结构图 ────────────────────────
-    print(f"\n[2/5] 生成信号标注图 + 波峰波谷结构图...")
-    signal_count = 0
+    # ── 2. 合并综合图表（信号+结构+生命周期合一）──────────
+    print(f"\n[2/4] 生成综合图表（信号+结构+生命周期合并）...")
+    combined_count = 0
 
     for trade in trades:
         sym = trade["symbol"]
@@ -131,58 +129,27 @@ def main() -> None:
         chart_bars = bars[start:end]
         chart_signal_idx = signal_idx - start
 
-        safe = sym.replace(".", "_")
-        dsafe = signal_date.replace("-", "")
-
-        plot_signal_chart(
-            bars=chart_bars,
-            signal_idx=chart_signal_idx,
-            symbol=f"{sym} {signal_date}",
-            key_low=trade.get("key_low"),
-            stop_loss_price=trade.get("stop_loss_price"),
-            entry_price=trade.get("entry_price"),
-            output_path=str(output_dir / f"signal_{safe}_{dsafe}.html"),
-        )
-        plot_structure_chart(
-            bars=chart_bars,
-            signal_idx=chart_signal_idx,
-            symbol=f"{sym} {signal_date}",
-            output_path=str(output_dir / f"structure_{safe}_{dsafe}.html"),
-        )
-        signal_count += 1
-
-    print(f"  {signal_count} 个信号图 + {signal_count} 个结构图")
-
-    # ── 3. 交易生命周期图 ───────────────────────────────────
-    print(f"\n[3/5] 生成交易生命周期图...")
-    lifecycle_count = 0
-
-    for trade in trades:
-        sym = trade["symbol"]
-        bars = bars_map.get(sym, [])
-        if not bars:
-            continue
-
-        signal_date = trade.get("signal_date", "")
-        signal_idx = _find_signal_idx(bars, signal_date)
-        if signal_idx is None:
-            continue
-
+        # 模拟交易获取完整生命周期
         lifecycle = simulate_trade(bars, signal_idx)
 
         safe = sym.replace(".", "_")
         dsafe = signal_date.replace("-", "")
-        plot_trade_lifecycle(
-            bars=bars,
+
+        plot_combined_trade_chart(
+            bars=chart_bars,
+            signal_idx=chart_signal_idx,
             trade=lifecycle,
-            output_path=str(output_dir / f"lifecycle_{safe}_{dsafe}.html"),
+            key_low=trade.get("key_low"),
+            stop_loss_price=trade.get("stop_loss_price"),
+            trend_break_ref=trade.get("trend_break_ref"),
+            output_path=str(output_dir / f"combined_{safe}_{dsafe}.html"),
         )
-        lifecycle_count += 1
+        combined_count += 1
 
-    print(f"  {lifecycle_count} 个生命周期图")
+    print(f"  {combined_count} 个综合图表")
 
-    # ── 4. 组合仪表盘 ───────────────────────────────────────
-    print(f"\n[4/5] 生成组合仪表盘...")
+    # ── 3. 组合仪表盘 ───────────────────────────────────────
+    print(f"\n[3/4] 生成组合仪表盘...")
     portfolio_data = data.get("portfolio", {})
 
     # 尝试恢复 nav_curve
@@ -230,13 +197,10 @@ def main() -> None:
     plot_portfolio_dashboard(stats, output_path=str(dashboard_path))
     print(f"  组合仪表盘 -> {dashboard_path}")
 
-    print(f"\n[5/5] === 完成 ===")
-    total = signal_count * 2 + lifecycle_count + 1
-    print(f"  信号标注图:   {signal_count} 个")
-    print(f"  波峰波谷图:   {signal_count} 个")
-    print(f"  生命周期图:   {lifecycle_count} 个")
+    print(f"\n[4/4] === 完成 ===")
+    print(f"  综合图表:     {combined_count} 个")
     print(f"  组合仪表盘:   1 个")
-    print(f"  总计:         {total} 个 HTML")
+    print(f"  总计:         {combined_count + 1} 个 HTML")
     print(f"  输出目录:     {output_dir}")
 
 
