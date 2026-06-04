@@ -101,13 +101,30 @@ def main() -> None:
     db_path = Path(args.cache) if args.cache else ROOT / "data" / "bars.db"
     cache = LocalBarCache(db_path)
 
-    print(f"\n[1/5] 从缓存加载 {len(symbols)} 只股票K线 ({db_path})...")
+    print(f"\n[1/4] 从缓存加载 {len(symbols)} 只股票K线 ({db_path})...")
     bars_map: dict[str, list[DailyBar]] = {}
     for sym in symbols:
         bars_map[sym] = cache.daily_bars_up_to(sym, end_date)
     cache.close()
     loaded = sum(1 for v in bars_map.values() if v)
     print(f"  加载 {loaded}/{len(symbols)} 只")
+
+    # ── 1b. 批量获取板块归属（行业+概念）───────────────────
+    print(f"\n[1b/4] 获取板块归属...")
+    sector_map: dict[str, dict] = {}
+    try:
+        from sagent.data import _make_concept_blocks
+
+        get_blocks = _make_concept_blocks()
+        for sym in symbols:
+            try:
+                sector_map[sym] = get_blocks(sym)
+            except Exception:
+                sector_map[sym] = {"industry": "未知", "concepts": []}
+        ok_count = sum(1 for v in sector_map.values() if v.get("industry", "未知") != "未知")
+        print(f"  {ok_count}/{len(symbols)} 只获取成功")
+    except Exception as e:
+        print(f"  板块获取失败（{e}），将跳过板块信息")
 
     # ── 2. 合并综合图表（信号+结构+生命周期合一）──────────
     print(f"\n[2/4] 生成综合图表（信号+结构+生命周期合并）...")
@@ -142,6 +159,7 @@ def main() -> None:
             key_low=trade.get("key_low"),
             stop_loss_price=trade.get("stop_loss_price"),
             trend_break_ref=trade.get("trend_break_ref"),
+            sector_info=sector_map.get(sym),
             output_path=str(output_dir / f"combined_{safe}_{dsafe}.html"),
         )
         combined_count += 1

@@ -961,6 +961,7 @@ def plot_combined_trade_chart(
     key_low: float | None = None,
     stop_loss_price: float | None = None,
     trend_break_ref: float | None = None,
+    sector_info: dict | None = None,
     output_path: str | None = None,
 ) -> go.Figure:
     """合并信号标注 + 波峰波谷结构 + 生命周期为一张综合图表。
@@ -978,6 +979,8 @@ def plot_combined_trade_chart(
         key_low: 关键低点价格。若为 None，使用 trade.key_low。
         stop_loss_price: 止损价。若为 None，使用 trade.stop_loss_price。
         trend_break_ref: 趋势破坏参考位。
+        sector_info: 板块信息 dict，包含 industry（行业）和 concepts（概念板块列表）。
+        output_path: 若指定，导出为 HTML 文件路径。
         output_path: 若指定，导出为 HTML 文件路径。
 
     Returns:
@@ -1342,12 +1345,27 @@ def plot_combined_trade_chart(
         exit_info = f" → {trade.exit_reason}"
     stop_type_info = f" ({trade.stop_loss_type})" if trade.stop_loss_type else ""
 
+    # 板块信息
+    sector_parts: list[str] = []
+    if sector_info:
+        industry = sector_info.get("industry", "")
+        if industry and industry != "未知":
+            sector_parts.append(f"行业: {industry}")
+        concepts = sector_info.get("concepts", [])
+        if concepts:
+            # 取最相关的2个概念
+            top_concepts = concepts[:2]
+            sector_parts.append(f"概念: {', '.join(top_concepts)}")
+    sector_text = " | ".join(sector_parts)
+
     title_text = (
         f"{trade.symbol} 综合图表 — "
         f"买入 {entry_price:.2f}"
         f"{exit_info}{stop_type_info} "
         f"({trade.holding_days}天, 收益 {trade.total_return:.1%})"
     )
+    if sector_text:
+        title_text = f"{title_text}<br><sup>{sector_text}</sup>"
 
     fig.update_layout(
         title=title_text,

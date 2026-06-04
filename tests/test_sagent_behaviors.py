@@ -3019,7 +3019,7 @@ def test_plot_structure_chart_returns_figure():
 
 
 def test_plot_combined_trade_chart_returns_figure():
-    """plot_combined_trade_chart 合并三图为一，包含 K 线+标注+成交量+R 值。"""
+    """plot_combined_trade_chart 合并三图为一，包含 K 线+标注+成交量+R 值+板块。"""
     import plotly.graph_objects as go
 
     from sagent.backtest_engine import simulate_trade
@@ -3032,10 +3032,17 @@ def test_plot_combined_trade_chart_returns_figure():
 
     trade = simulate_trade(bars, signal_idx)
 
+    # 带板块信息
+    sector_info = {
+        "industry": "银行",
+        "concepts": ["沪深300", "上证50", "MSCI中国"],
+    }
+
     fig = plot_combined_trade_chart(
         bars=bars,
         signal_idx=signal_idx,
         trade=trade,
+        sector_info=sector_info,
     )
 
     assert isinstance(fig, go.Figure)
@@ -3043,6 +3050,12 @@ def test_plot_combined_trade_chart_returns_figure():
     title = fig.layout.title.text
     assert "综合图表" in title
     assert trade.symbol in title
+    # 板块信息在标题中显示
+    assert "银行" in title
+    assert "沪深300" in title
+    assert "上证50" in title
+    # 只显示前2个概念
+    assert "MSCI中国" not in title
 
     # 3 行子图：K 线 + 成交量 + R 值
     # 至少有 K 线蜡烛图（3组） + 成交量 + R 值曲线 = 5 traces
