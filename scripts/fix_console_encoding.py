@@ -76,7 +76,7 @@ def main() -> None:
         print(f"stdout 编码: {result.get('stdout_encoding')}")
         print(f"测试: {result.get('test_output')}")
         print("\n如需永久修复，请在 PowerShell profile 中添加：")
-        print('  chcp 65001 > $null')
+        print("  chcp 65001 > $null")
         print('  $env:PYTHONIOENCODING = "utf-8"')
     elif result["status"] == "skipped":
         print(result["reason"])

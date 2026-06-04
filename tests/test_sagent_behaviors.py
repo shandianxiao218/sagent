@@ -3149,11 +3149,13 @@ def test_create_llm_client_with_fallback():
     """配置了 fallback 时返回 FallbackChain。"""
     from sagent.real_llm import create_llm_client, _FallbackChain
 
-    client = create_llm_client({
-        "SAGENT_LLM_API_KEY": "key1",
-        "SAGENT_LLM_FALLBACK_API_KEY": "key2",
-        "SAGENT_LLM_FALLBACK_MODEL": "deepseek-chat",
-    })
+    client = create_llm_client(
+        {
+            "SAGENT_LLM_API_KEY": "key1",
+            "SAGENT_LLM_FALLBACK_API_KEY": "key2",
+            "SAGENT_LLM_FALLBACK_MODEL": "deepseek-chat",
+        }
+    )
     assert client is not None
     assert isinstance(client, _FallbackChain)
 

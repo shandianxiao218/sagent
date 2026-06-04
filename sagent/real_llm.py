@@ -28,7 +28,9 @@ def _get_llm_config(env: dict[str, str] | None = None) -> dict[str, str]:
     e = env or dict(os.environ)
     return {
         "api_key": e.get("SAGENT_LLM_API_KEY", ""),
-        "base_url": e.get("SAGENT_LLM_BASE_URL", "https://open.bigmodel.cn/api/paas/v4"),
+        "base_url": e.get(
+            "SAGENT_LLM_BASE_URL", "https://open.bigmodel.cn/api/paas/v4"
+        ),
         "model": e.get("SAGENT_LLM_MODEL", "glm-4-flash"),
         "fallback_model": e.get("SAGENT_LLM_FALLBACK_MODEL", ""),
         "fallback_base_url": e.get("SAGENT_LLM_FALLBACK_BASE_URL", ""),
@@ -80,9 +82,7 @@ class OpenAILLMClient:
             "max_tokens": 512,
         }
 
-        resp = requests.post(
-            url, headers=headers, json=payload, timeout=self.timeout
-        )
+        resp = requests.post(url, headers=headers, json=payload, timeout=self.timeout)
         resp.raise_for_status()
         data = resp.json()
 

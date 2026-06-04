@@ -53,13 +53,20 @@ def _judge_signal(metrics: dict, kline_text: str, key_low: float) -> dict:
     if _llm_client is not None:
         from sagent.llm import PromptRequest, build_stock_prompt
         from sagent.signal import KlineDescription
+
         desc = KlineDescription(
-            symbol="", text=kline_text, key_low=key_low,
-            risk_price=0, fields={},
+            symbol="",
+            text=kline_text,
+            key_low=key_low,
+            risk_price=0,
+            fields={},
         )
         from sagent.portfolio import Decision
+
         sector_d = Decision(
-            action="主线", reason="回测简化", model="backtest",
+            action="主线",
+            reason="回测简化",
+            model="backtest",
         )
         prompt = build_stock_prompt(desc, sector_d)
         try:
@@ -76,6 +83,7 @@ def _judge_signal(metrics: dict, kline_text: str, key_low: float) -> dict:
         except Exception as e:
             print(f"  LLM API 错误，回退规则引擎: {e}", file=sys.stderr)
     return simulated_llm_judge(metrics, kline_text, key_low)
+
 
 # ─── 行业归属获取（简化版 L6）─────────────────────────────────
 # 注意：回测中的 L6 是简化版，仅获取行业归属并做集中度统计，
@@ -112,13 +120,19 @@ def init_sector_cache() -> dict:
     """初始化 SectorCache，返回行业映射 dict。一次调用加载全量映射。"""
     global _sector_cache
     from sagent.sector_cache import SectorCache
+
     db_path = ROOT / "data" / "sector.db"
     _sector_cache = SectorCache(db_path)
     if _sector_cache.needs_refresh():
-        print("  SectorCache 无数据，正在从 mootdx 加载全量行业映射...", file=sys.stderr)
+        print(
+            "  SectorCache 无数据，正在从 mootdx 加载全量行业映射...", file=sys.stderr
+        )
         _sector_cache.refresh()
     stats = _sector_cache.stats()
-    print(f"  SectorCache 就绪: {stats['total_symbols']} 只, {stats['total_sectors']} 个板块", file=sys.stderr)
+    print(
+        f"  SectorCache 就绪: {stats['total_symbols']} 只, {stats['total_sectors']} 个板块",
+        file=sys.stderr,
+    )
     return stats
 
 
@@ -1060,7 +1074,9 @@ def main() -> None:
         if info["configured"]:
             print(f"LLM 已配置: model={info['model']}", file=sys.stderr)
         else:
-            print("警告: --llm 但未配置 SAGENT_LLM_API_KEY，使用规则引擎", file=sys.stderr)
+            print(
+                "警告: --llm 但未配置 SAGENT_LLM_API_KEY，使用规则引擎", file=sys.stderr
+            )
             _llm_client = None
 
     if args.engine:

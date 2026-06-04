@@ -137,7 +137,9 @@ def main() -> None:
     parser.add_argument("--all", action="store_true", help="预热所有缓存（默认）")
     parser.add_argument("--stocks", action="store_true", help="只预热个股 K 线")
     parser.add_argument("--sectors", action="store_true", help="只预热行业映射")
-    parser.add_argument("--sector-bars", action="store_true", help="只预热板块指数 K 线")
+    parser.add_argument(
+        "--sector-bars", action="store_true", help="只预热板块指数 K 线"
+    )
     parser.add_argument("--sample", type=int, default=0, help="预热股票数量（0=全部）")
     args = parser.parse_args()
 
