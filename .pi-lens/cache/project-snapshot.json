@@ -1,7 +1,7 @@
 {
   "version": 1,
   "projectRoot": "D:/suishi/sagent",
-  "generatedAt": "2026-06-05T04:00:33.454Z",
+  "generatedAt": "2026-06-05T04:07:06.427Z",
   "seq": 587,
   "files": {
     "D:/suishi/sagent/close_issues.py": {
@@ -633,6 +633,13 @@
       "size": 6503,
       "imports": [],
       "lastSeq": 0
+    },
+    "D:/suishi/sagent/sagent/strategy/scanner.py": {
+      "path": "D:/suishi/sagent/sagent/strategy/scanner.py",
+      "mtimeMs": 1780632312496.9,
+      "size": 6307,
+      "imports": [],
+      "lastSeq": 0
     }
   },
   "symbols": {},
@@ -662,6 +669,7 @@
     "D:/suishi/sagent/sagent/strategy/__init__.py": [],
     "D:/suishi/sagent/sagent/strategy/judge.py": [],
     "D:/suishi/sagent/sagent/strategy/params.py": [],
+    "D:/suishi/sagent/sagent/strategy/scanner.py": [],
     "D:/suishi/sagent/sagent/strategy/signal.py": [],
     "D:/suishi/sagent/sagent/technical.py": [],
     "D:/suishi/sagent/sagent/validation.py": [],

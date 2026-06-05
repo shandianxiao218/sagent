@@ -20,7 +20,7 @@ import time
 import sys
 from collections import defaultdict
 from pathlib import Path
-from statistics import mean, median, stdev
+from statistics import mean
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -42,6 +42,12 @@ from sagent.models import DailyBar
 from sagent.real_llm import create_llm_client, llm_status
 from sagent.technical import check_signal_from_closes, simulated_llm_judge
 from sagent.strategy.params import ScanParams, SignalParams, StopLossParams
+from sagent.strategy.scanner import (
+    desc,
+    forward_returns,
+    load_and_filter_signals,
+    scan_signals_from_closes,
+)
 
 # ─── LLM 判断调度 ────────────────────────────────────────────
 # 全局 LLM 客户端，由 main() 根据命令行参数初始化
@@ -173,51 +179,7 @@ def fetch_bars(symbol: str, offset: int = 370) -> list[DailyBar]:
     return bars
 
 
-# ─── 信号检测 ─────────────────────────────────────────────────
-
-
-def forward_returns(bars: list[DailyBar], signal_idx: int) -> dict:
-    entry_price = bars[signal_idx].close
-    result: dict = {"entry_price": round(entry_price, 2)}
-    for w in (5, 10, 20):
-        target = signal_idx + w
-        if target < len(bars):
-            result[f"return_{w}d"] = round(
-                (bars[target].close - entry_price) / entry_price, 4
-            )
-        else:
-            result[f"return_{w}d"] = None
-    peak = entry_price
-    max_dd = 0.0
-    end = min(signal_idx + 20, len(bars))
-    for i in range(signal_idx + 1, end):
-        if bars[i].high > peak:
-            peak = bars[i].high
-        dd = (peak - bars[i].low) / peak
-        if dd > max_dd:
-            max_dd = dd
-    result["max_drawdown_20d"] = round(max_dd, 4)
-    return result
-
-
-# ─── 统计工具 ─────────────────────────────────────────────────
-
-
-def desc(values: list[float]) -> dict:
-    if not values:
-        return {"count": 0, "mean": None, "median": None, "win_rate": None}
-    wins = [v for v in values if v > 0]
-    sorted_v = sorted(values)
-    n = len(sorted_v)
-    return {
-        "count": n,
-        "mean": round(mean(values), 4),
-        "median": round(median(values), 4),
-        "std": round(stdev(values), 4) if n >= 2 else 0,
-        "min": round(min(values), 4),
-        "max": round(max(values), 4),
-        "win_rate": round(len(wins) / n, 4),
-    }
+# ─── 信号检测和统计工具已提取到 sagent/strategy/scanner.py ──
 
 
 # ─── 缓存新鲜度检测 ──────────────────────────────────────────
@@ -336,97 +298,34 @@ def run_backtest(
     # Phase A 扫描：用 closes 做信号检测
     print("  Phase A: 信号扫描...", file=sys.stderr)
     t0 = time.perf_counter()
-    scan_hits: list[dict] = []  # {symbol, name, signal_date, check_idx, metrics}
-    short_bars = 0
-    for _i, stock in enumerate(sample):
-        symbol = str(stock.get("code", ""))
-        name = str(stock.get("name", ""))
-
-        dates, closes = all_closes_map.get(symbol, ([], []))
-        if len(closes) < _scan.min_bars_cache:
-            short_bars += 1
-            continue
-
-        # 找日期范围
-        range_start_idx = range_end_idx = None
-        for j in range(len(dates)):
-            if dates[j] >= start_date and range_start_idx is None:
-                range_start_idx = j
-            if dates[j] <= end_date:
-                range_end_idx = j
-        if range_start_idx is None or range_end_idx is None:
-            continue
-
-        scan_start = max(_signal.min_bars, range_start_idx)
-        scan_end = min(range_end_idx, len(closes) - _min_forward)
-
-        for check_idx in range(scan_start, scan_end, _window_step):
-            sig_date = dates[check_idx]
-            if sig_date < start_date or sig_date > end_date:
-                continue
-            metrics = check_signal_from_closes(closes, check_idx)
-            if metrics is not None:
-                scan_hits.append(
-                    {
-                        "symbol": symbol,
-                        "name": name,
-                        "signal_date": sig_date,
-                        "check_idx": check_idx,
-                        "metrics": metrics,
-                        "closes": closes,  # 保留给 Phase B 的 forward_returns
-                        "dates": dates,
-                    }
-                )
+    scan_hits = scan_signals_from_closes(
+        all_closes_map,
+        sample,
+        start_date,
+        end_date,
+        sp=_signal,
+        scanp=_scan,
+    )
     t_scan = time.perf_counter() - t0
     print(f"    扫描完成: {len(scan_hits)} 信号, {t_scan:.3f}s", file=sys.stderr)
 
     # Phase B: 只为命中信号的股票加载完整 DailyBar
     print(f"  Phase B: 加载 {len(scan_hits)} 个信号的完整 K 线...", file=sys.stderr)
     t0 = time.perf_counter()
-    all_signals: list[dict] = []
     fetch_errors = 0
-    low_amount_count = 0
     # 按信号股票去重加载
     hit_symbols = {h["symbol"] for h in scan_hits}
     bars_map: dict[str, list] = {}
     for sym in hit_symbols:
         bars_map[sym] = cache.daily_bars_up_to(sym, end_date)
 
-    for hit in scan_hits:
-        symbol = hit["symbol"]
-        bars = bars_map.get(symbol, [])
-        if not bars:
-            continue
-        check_idx = hit["check_idx"]
-
-        # 成交额过滤（最近20日）
-        recent_bars = bars[-_scan.amount_window :]
-        avg_amount = mean(bar.amount for bar in recent_bars) if recent_bars else 0
-        if avg_amount < _min_avg_amount:
-            low_amount_count += 1
-            continue
-
-        fwd = forward_returns(bars, check_idx)
-        window_bars = bars[: check_idx + 1]
-        desc_result = describe_stock(symbol, window_bars)
-        llm_result = _judge_signal(
-            hit["metrics"], desc_result.text, desc_result.key_low
-        )
-
-        all_signals.append(
-            {
-                "symbol": symbol,
-                "name": hit["name"],
-                "signal_date": hit["signal_date"],
-                "metrics": hit["metrics"],
-                "forward": fwd,
-                "kline_description": desc_result.text,
-                "key_low": desc_result.key_low,
-                "llm_action": llm_result["action"],
-                "llm_reason": llm_result["reason"],
-                "llm_confidence": llm_result["confidence"],
-            }
-        )
+    all_signals, low_amount_count = load_and_filter_signals(
+        scan_hits,
+        bars_map,
+        _judge_signal,
+        min_avg_amount=_min_avg_amount,
+        amount_window=_scan.amount_window,
+    )
     t_phase_b = time.perf_counter() - t0
     print(
         f"    Phase B 完成: {len(all_signals)} 有效信号, {t_phase_b:.3f}s",
@@ -434,6 +333,13 @@ def run_backtest(
     )
 
     cache.close()
+    # 统计 short_bars
+    short_bars = sum(
+        1
+        for s in sample
+        if len(all_closes_map.get(str(s.get("code", "")), ([], []))[1])
+        < _scan.min_bars_cache
+    )
     print(
         f"\n  完成: 错误{fetch_errors}, K线不足{short_bars}, 成交额不足{low_amount_count}",
         file=sys.stderr,

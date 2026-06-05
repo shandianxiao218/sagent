@@ -9,8 +9,10 @@ from .params import (
     SignalParams,
     StopLossParams,
 )
+from .scanner import desc, forward_returns, load_and_filter_signals, scan_signals_from_closes
 from .signal import (
     HasDailyBars,
+    _ma,
     check_signal_from_closes,
     filter_stock_pool,
     technical_candidates,
