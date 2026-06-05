@@ -14,7 +14,8 @@ from typing import Any
 
 from .kline import find_key_low, find_trend_break_ref
 from .models import DailyBar
-from .strategy.params import StopLossParams
+from .strategy.entry import confirm_entry
+from .strategy.params import EntryParams, StopLossParams
 
 
 # 模块级默认参数
@@ -121,6 +122,7 @@ def simulate_trade(
     signal_idx: int,
     max_holding: int | None = None,
     slp: StopLossParams | None = None,
+    ep: EntryParams | None = None,
 ) -> TradeLifecycle:
     """模拟单笔交易的逐日止损/止盈生命周期。
 
@@ -132,20 +134,47 @@ def simulate_trade(
         signal_idx: 信号日（买入日）在 bars 中的索引。
         max_holding: 最大持有天数（不含买入日），None 则用参数默认值。
         slp: 止损参数，None 则用模块默认值。
+        ep: 入场确认参数，None 则用模块默认值（不确认）。
 
     Returns:
         TradeLifecycle 包含完整的退出信息和逐日事件。
     """
     p = slp or _stop_params
+    _ep = ep or EntryParams()
     _max_holding = max_holding if max_holding is not None else p.max_holding
+
+    # 入场确认
+    confirmed, entry_idx, confirm_reason = confirm_entry(bars, signal_idx, ep=_ep)
+    if not confirmed:
+        # 确认失败 → 返回一个零收益的「未入场」交易
+        signal_bar = bars[signal_idx]
+        return TradeLifecycle(
+            symbol=signal_bar.symbol,
+            signal_date=signal_bar.date,
+            entry_price=round(signal_bar.close, 2),
+            key_low=0.0,
+            stop_loss_price=0.0,
+            exit_date=signal_bar.date,
+            exit_price=round(signal_bar.close, 2),
+            exit_reason=f"入场确认失败: {confirm_reason}",
+            holding_days=0,
+            daily_events=[],
+            total_return=0.0,
+            stop_loss_type="",
+            stop_loss_distance_pct=0.0,
+        )
     n = len(bars)
     signal_bar = bars[signal_idx]
     symbol = signal_bar.symbol
     signal_date = signal_bar.date
-    entry_price = signal_bar.close
+
+    # 如果有入场确认，entry_idx 可能是 signal_idx + 1
+    # 此时入场价格用 entry_idx 当日收盘价（而非信号日收盘价）
+    entry_bar = bars[entry_idx]
+    entry_price = entry_bar.close
 
     # 计算 key_low、止损价和趋势破坏参考位
-    key_low, key_low_idx = find_key_low_for_signal(bars, signal_idx)
+    key_low, key_low_idx = find_key_low_for_signal(bars, entry_idx)
     stop_loss_price = round(
         max(
             entry_price * (1 - p.absolute_stop),
@@ -157,7 +186,7 @@ def simulate_trade(
 
     # 计算趋势破坏参考位 (#28)
     trend_break_ref, trend_break_desc = find_trend_break_ref(
-        bars, signal_idx, key_low_idx=key_low_idx
+        bars, entry_idx, key_low_idx=key_low_idx
     )
 
     # 状态变量
@@ -171,12 +200,12 @@ def simulate_trade(
     total_return = 0.0
     holding_days = 0
 
-    # 逐日遍历：从买入次日到 max_holding
-    end_idx = min(signal_idx + _max_holding, n - 1)
+    # 逐日遍历：从入场次日到 max_holding
+    end_idx = min(entry_idx + _max_holding, n - 1)
 
-    for i in range(signal_idx + 1, end_idx + 1):
+    for i in range(entry_idx + 1, end_idx + 1):
         bar = bars[i]
-        holding_days = i - signal_idx
+        holding_days = i - entry_idx
         daily_high = bar.high
         daily_low = bar.low
         daily_close = bar.close
@@ -240,7 +269,7 @@ def simulate_trade(
         exit_date = last_bar.date
         exit_price = last_bar.close
         exit_reason = "持有到期"
-        holding_days = end_idx - signal_idx
+        holding_days = end_idx - entry_idx
 
         if half_taken:
             locked_return = half_profit_r * r_denom / entry_price
