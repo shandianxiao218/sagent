@@ -13,6 +13,7 @@ from statistics import mean, stdev
 from typing import Any
 
 from .backtest_engine import find_key_low_for_signal
+from .strategy.params import PortfolioParams, StopLossParams
 from .kline import find_trend_break_ref
 from .models import DailyBar
 
@@ -74,16 +75,22 @@ class BacktestPortfolio:
 
     def __init__(
         self,
-        initial_cash: float = 100_000,
-        position_ratio: float = 0.1,
-        max_weekly_open: int = 2,
-        max_holding: int = 20,
+        initial_cash: float | None = None,
+        position_ratio: float | None = None,
+        max_weekly_open: int | None = None,
+        max_holding: int | None = None,
     ) -> None:
-        self.cash = initial_cash
-        self.initial_cash = initial_cash
-        self.position_ratio = position_ratio
-        self.max_weekly_open = max_weekly_open
-        self.max_holding = max_holding
+        _pp = PortfolioParams()
+        _sp = StopLossParams()
+        self.cash = initial_cash if initial_cash is not None else _pp.initial_cash
+        self.initial_cash = self.cash
+        self.position_ratio = (
+            position_ratio if position_ratio is not None else _pp.position_ratio
+        )
+        self.max_weekly_open = (
+            max_weekly_open if max_weekly_open is not None else _pp.max_weekly_open
+        )
+        self.max_holding = max_holding if max_holding is not None else _sp.max_holding
 
         # 活跃持仓列表，每项为 dict：
         # symbol, entry_price, quantity, key_low, stop_loss_price,
@@ -140,7 +147,10 @@ class BacktestPortfolio:
 
         # 4. 获取 key_low 和趋势破坏参考位
         key_low, key_low_idx = find_key_low_for_signal(bars, signal_idx)
-        stop_loss_price = round(max(entry_price * 0.95, key_low), 2)
+        stop_loss_price = round(
+            max(entry_price * (1 - StopLossParams().portfolio_stop_pct), key_low),
+            2,
+        )
         trend_break_ref, trend_break_desc = find_trend_break_ref(
             bars, signal_idx, key_low_idx=key_low_idx
         )

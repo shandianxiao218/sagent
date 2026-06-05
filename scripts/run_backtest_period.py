@@ -41,6 +41,7 @@ from sagent.kline import describe_stock
 from sagent.models import DailyBar
 from sagent.real_llm import create_llm_client, llm_status
 from sagent.technical import check_signal_from_closes, simulated_llm_judge
+from sagent.strategy.params import ScanParams, SignalParams, StopLossParams
 
 # ─── LLM 判断调度 ────────────────────────────────────────────
 # 全局 LLM 客户端，由 main() 根据命令行参数初始化
@@ -266,17 +267,26 @@ def _check_cache_freshness(cache: LocalBarCache, sample_symbols: list[str]) -> b
 def run_backtest(
     start_date: str = "2025-10-01",
     end_date: str = "2026-05-31",
-    sample_size: int = 1500,
+    sample_size: int | None = None,
     seed: int = 42,
-    window_step: int = 3,
-    min_forward: int = 20,
-    min_avg_amount: float = 100_000_000,
+    window_step: int | None = None,
+    min_forward: int | None = None,
+    min_avg_amount: float | None = None,
     cache_path: str | None = None,
     use_real_llm: bool = False,
 ) -> dict:
+    # 从集中参数读取默认值
+    _scan = ScanParams()
+    _signal = SignalParams()
+    _sample_size = sample_size if sample_size is not None else _scan.sample_size
+    _window_step = window_step if window_step is not None else _scan.window_step
+    _min_forward = min_forward if min_forward is not None else _scan.min_forward
+    _min_avg_amount = (
+        min_avg_amount if min_avg_amount is not None else _scan.min_avg_amount
+    )
     print(f"=== 定向时间区间回测: {start_date} ~ {end_date} ===", file=sys.stderr)
     print(
-        f"参数: 采样{sample_size}只, 步长{window_step}日, 最低日均成交额{min_avg_amount / 1e8:.1f}亿",
+        f"参数: 采样{_sample_size}只, 步长{_window_step}日, 最低日均成交额{_min_avg_amount / 1e8:.1f}亿",
         file=sys.stderr,
     )
 
@@ -290,7 +300,7 @@ def run_backtest(
     print(f"  主板共 {len(all_stocks)} 只", file=sys.stderr)
 
     random.seed(seed)
-    sample = random.sample(all_stocks, min(sample_size, len(all_stocks)))
+    sample = random.sample(all_stocks, min(_sample_size, len(all_stocks)))
     print(f"  采样 {len(sample)} 只", file=sys.stderr)
 
     # 1.5 初始化 SQLite 缓存 + 预加载
@@ -299,7 +309,9 @@ def run_backtest(
     sample_symbols = [str(s.get("code", "")) for s in sample]
     skip_inc = _check_cache_freshness(cache, sample_symbols)
     print(f"\n  预加载缓存 ({db_path})...", file=sys.stderr)
-    cache.ensure_symbols(sample_symbols, min_bars=300, skip_incremental=skip_inc)
+    cache.ensure_symbols(
+        sample_symbols, min_bars=_scan.min_bars_cache, skip_incremental=skip_inc
+    )
     cache_stats = cache.stats()
     print(
         f"  缓存就绪: {cache_stats['total_symbols']} 只, "
@@ -331,7 +343,7 @@ def run_backtest(
         name = str(stock.get("name", ""))
 
         dates, closes = all_closes_map.get(symbol, ([], []))
-        if len(closes) < 300:
+        if len(closes) < _scan.min_bars_cache:
             short_bars += 1
             continue
 
@@ -345,10 +357,10 @@ def run_backtest(
         if range_start_idx is None or range_end_idx is None:
             continue
 
-        scan_start = max(260, range_start_idx)
-        scan_end = min(range_end_idx, len(closes) - min_forward)
+        scan_start = max(_signal.min_bars, range_start_idx)
+        scan_end = min(range_end_idx, len(closes) - _min_forward)
 
-        for check_idx in range(scan_start, scan_end, window_step):
+        for check_idx in range(scan_start, scan_end, _window_step):
             sig_date = dates[check_idx]
             if sig_date < start_date or sig_date > end_date:
                 continue
@@ -388,9 +400,9 @@ def run_backtest(
         check_idx = hit["check_idx"]
 
         # 成交额过滤（最近20日）
-        recent_bars = bars[-20:]
+        recent_bars = bars[-_scan.amount_window :]
         avg_amount = mean(bar.amount for bar in recent_bars) if recent_bars else 0
-        if avg_amount < min_avg_amount:
+        if avg_amount < _min_avg_amount:
             low_amount_count += 1
             continue
 
@@ -623,12 +635,12 @@ def run_backtest(
             "parameters": {
                 "start_date": start_date,
                 "end_date": end_date,
-                "sample_size": sample_size,
+                "sample_size": _sample_size,
                 "total_scanned": len(sample),
                 "fetch_errors": fetch_errors,
                 "short_bars": short_bars,
                 "low_amount_count": low_amount_count,
-                "min_avg_amount": min_avg_amount,
+                "min_avg_amount": _min_avg_amount,
             },
         },
         "summary": {
@@ -694,12 +706,12 @@ def run_backtest(
 def run_engine_backtest(
     start_date: str = "2025-10-01",
     end_date: str = "2026-05-31",
-    sample_size: int = 500,
+    sample_size: int | None = None,
     seed: int = 42,
-    window_step: int = 3,
-    min_avg_amount: float = 100_000_000,
-    initial_cash: float = 100_000,
-    max_holding: int = 20,
+    window_step: int | None = None,
+    min_avg_amount: float | None = None,
+    initial_cash: float | None = None,
+    max_holding: int | None = None,
     cache_path: str | None = None,
 ) -> dict:
     """使用逐日止损/止盈引擎 + 组合管理的回测。
@@ -712,13 +724,23 @@ def run_engine_backtest(
 
     防未来函数：所有 K 线只加载到 end_date，simulate_trade 的 bars 不会包含未来数据。
     """
+    _scan = ScanParams()
+    _signal = SignalParams()
+    _stop = StopLossParams()
+    _sample_size = sample_size if sample_size is not None else _scan.sample_size
+    _window_step = window_step if window_step is not None else _scan.window_step
+    _min_avg_amount = (
+        min_avg_amount if min_avg_amount is not None else _scan.min_avg_amount
+    )
+    _initial_cash = initial_cash if initial_cash is not None else 100_000
+    _max_holding = max_holding if max_holding is not None else _stop.max_holding
     print(
         f"=== 引擎回测 (逐日止损/止盈 + 组合管理): {start_date} ~ {end_date} ===",
         file=sys.stderr,
     )
     print(
-        f"参数: 采样{sample_size}只, 步长{window_step}日, "
-        f"初始资金{initial_cash:,.0f}, 最大持有{max_holding}天",
+        f"参数: 采样{_sample_size}只, 步长{_window_step}日, "
+        f"初始资金{_initial_cash:,.0f}, 最大持有{_max_holding}天",
         file=sys.stderr,
     )
 
@@ -732,7 +754,7 @@ def run_engine_backtest(
     print(f"  主板共 {len(all_stocks)} 只", file=sys.stderr)
 
     random.seed(seed)
-    sample = random.sample(all_stocks, min(sample_size, len(all_stocks)))
+    sample = random.sample(all_stocks, min(_sample_size, len(all_stocks)))
     print(f"  采样 {len(sample)} 只", file=sys.stderr)
 
     # 1.5 初始化 SQLite 缓存 + 预加载
@@ -741,7 +763,9 @@ def run_engine_backtest(
     sample_symbols = [str(s.get("code", "")) for s in sample]
     skip_inc = _check_cache_freshness(cache, sample_symbols)
     print(f"\n  预加载缓存 ({db_path})...", file=sys.stderr)
-    cache.ensure_symbols(sample_symbols, min_bars=300, skip_incremental=skip_inc)
+    cache.ensure_symbols(
+        sample_symbols, min_bars=_scan.min_bars_cache, skip_incremental=skip_inc
+    )
     cache_stats = cache.stats()
     print(
         f"  缓存就绪: {cache_stats['total_symbols']} 只, "
@@ -773,7 +797,7 @@ def run_engine_backtest(
     short_bars = 0
     for sym in sample_symbols:
         dates, closes = all_closes_map.get(sym, ([], []))
-        if len(closes) < 300:
+        if len(closes) < _scan.min_bars_cache:
             short_bars += 1
             continue
         range_start_idx = range_end_idx = None
@@ -784,9 +808,9 @@ def run_engine_backtest(
                 range_end_idx = j
         if range_start_idx is None or range_end_idx is None:
             continue
-        scan_start = max(260, range_start_idx)
-        scan_end = min(range_end_idx, len(closes) - max_holding)
-        for check_idx in range(scan_start, scan_end, window_step):
+        scan_start = max(_signal.min_bars, range_start_idx)
+        scan_end = min(range_end_idx, len(closes) - _max_holding)
+        for check_idx in range(scan_start, scan_end, _window_step):
             sig_date = dates[check_idx]
             if sig_date < start_date or sig_date > end_date:
                 continue
@@ -825,9 +849,9 @@ def run_engine_backtest(
         if not bars:
             continue
         # 成交额过滤
-        recent_bars = bars[-20:]
+        recent_bars = bars[-_scan.amount_window :]
         avg_amount = mean(bar.amount for bar in recent_bars) if recent_bars else 0
-        if avg_amount < min_avg_amount:
+        if avg_amount < _min_avg_amount:
             low_amount_count += 1
             continue
         all_signals.append(
@@ -862,7 +886,7 @@ def run_engine_backtest(
         if not bars or signal_idx is None:
             continue
 
-        trade = simulate_trade(bars, signal_idx, max_holding=max_holding)
+        trade = simulate_trade(bars, signal_idx, max_holding=_max_holding)
 
         # K线描述（用于 LLM 判断和报表展示）
         window_bars = bars[: signal_idx + 1]
@@ -918,8 +942,8 @@ def run_engine_backtest(
     portfolio_stats = run_portfolio_backtest(
         bars_cache,
         portfolio_signals,
-        initial_cash=initial_cash,
-        max_holding=max_holding,
+        initial_cash=_initial_cash,
+        max_holding=_max_holding,
     )
     print(
         f"  组合回测完成: {portfolio_stats.total_trades} 笔交易, "
@@ -1019,14 +1043,14 @@ def run_engine_backtest(
             "parameters": {
                 "start_date": start_date,
                 "end_date": end_date,
-                "sample_size": sample_size,
-                "initial_cash": initial_cash,
-                "max_holding": max_holding,
+                "sample_size": _sample_size,
+                "initial_cash": _initial_cash,
+                "max_holding": _max_holding,
                 "total_scanned": len(sample),
                 "fetch_errors": fetch_errors,
                 "short_bars": short_bars,
                 "low_amount_count": low_amount_count,
-                "min_avg_amount": min_avg_amount,
+                "min_avg_amount": _min_avg_amount,
             },
         },
         "engine_summary": engine_summary,

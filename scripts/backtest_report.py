@@ -421,7 +421,7 @@ tr:hover { background: #e8f4fd; }
                 "<td><button class='toggle-btn' onclick='toggleDetail(this)'>详情</button>"
             )
             # K 线图按钮
-            signal_date_clean = t['signal_date'].replace("-", "")
+            signal_date_clean = t["signal_date"].replace("-", "")
             chart_file = f"charts/combined_{t['symbol']}_{signal_date_clean}.html"
             parts.append(
                 f" <a href='{chart_file}' target='_blank' class='toggle-btn' style='text-decoration:none;display:inline-block;margin-left:4px'>K线</a></td>"

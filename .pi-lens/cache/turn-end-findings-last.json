@@ -1,6 +1,6 @@
 {
-  "signature": "scripts/test_sector_bars.py::Unresolved from this turn — scripts/test_sector_bars.py:\n🔴 STOP — 2 issue(s) must be fixed:\n  L2: Import \"mootdx.quotes\" could not be resolved\n  Import \"mootdx.quotes\" could not be resolved\n\nℹ️ Advisory — no action required this turn:\nCode-quality warnings introduced/touched this turn: 5 across 1 file(s).\nTop rules: python-thread-global-write×5\nDetails written to .pi-lens/cache/code-quality-warnings.json\nNo action required unless you are already refactoring these areas.",
-  "sessionId": "lens-mpx9sn7w-fa1fa846",
-  "projectSeqStart": 452,
-  "projectSeqEnd": 453
+  "signature": "scripts/run_backtest_period.py::Unresolved from this turn — scripts/run_backtest_period.py:\n🔴 STOP — 2 issue(s) must be fixed:\n  L846: Operator \"<\" not supported for types \"float | Literal[0]\" and \"float | None\"\n    Operator \"<\" not supported for types \"float\" and \"None\"\n    Operator \"<\" not supported for types \"Literal[0]\" and \"None\"\n  L938: Argument of type \"int | None\" cannot be assigned to parameter \"max_holding\" of type \"int\" in function \"run_portfolio_backtest\"\n    Type \"int | None\" is not assignable to type \"int\"\n      \"None\" is not assignable to \"int\"",
+  "sessionId": "lens-mq0ci7ka-f12b74e3",
+  "projectSeqStart": 607,
+  "projectSeqEnd": 608
 }

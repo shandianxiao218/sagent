@@ -1,8 +1,8 @@
 {
   "version": 1,
   "projectRoot": "D:/suishi/sagent",
-  "generatedAt": "2026-06-03T05:35:52.545Z",
-  "seq": 346,
+  "generatedAt": "2026-06-05T03:52:54.609Z",
+  "seq": 587,
   "files": {
     "D:/suishi/sagent/close_issues.py": {
       "path": "D:/suishi/sagent/close_issues.py",
@@ -535,28 +535,118 @@
       "size": 1966,
       "imports": [],
       "lastSeq": 0
+    },
+    "D:/suishi/sagent/sagent/sector_bars_cache.py": {
+      "path": "D:/suishi/sagent/sagent/sector_bars_cache.py",
+      "mtimeMs": 1780466713878.944,
+      "size": 14682,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/scripts/test_sector_cache.py": {
+      "path": "D:/suishi/sagent/scripts/test_sector_cache.py",
+      "mtimeMs": 1780466674958.0303,
+      "size": 903,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/scripts/benchmark_backtest_cache.py": {
+      "path": "D:/suishi/sagent/scripts/benchmark_backtest_cache.py",
+      "mtimeMs": 1780500285045.2642,
+      "size": 6698,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/scripts/backtest_report.py": {
+      "path": "D:/suishi/sagent/scripts/backtest_report.py",
+      "mtimeMs": 1780527459143.324,
+      "size": 11257,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/sagent/market.py": {
+      "path": "D:/suishi/sagent/sagent/market.py",
+      "mtimeMs": 1780578901660.7563,
+      "size": 583,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/sagent/chart_models.py": {
+      "path": "D:/suishi/sagent/sagent/chart_models.py",
+      "mtimeMs": 1780578926281.7651,
+      "size": 787,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/sagent/signal.py": {
+      "path": "D:/suishi/sagent/sagent/signal.py",
+      "mtimeMs": 1780578910899.4268,
+      "size": 715,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/sagent/real_llm.py": {
+      "path": "D:/suishi/sagent/sagent/real_llm.py",
+      "mtimeMs": 1780580689317.035,
+      "size": 6409,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/scripts/warmup_cache.py": {
+      "path": "D:/suishi/sagent/scripts/warmup_cache.py",
+      "mtimeMs": 1780581316855.5122,
+      "size": 5798,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/scripts/fix_console_encoding.py": {
+      "path": "D:/suishi/sagent/scripts/fix_console_encoding.py",
+      "mtimeMs": 1780581439232.4517,
+      "size": 2661,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/sagent/strategy/__init__.py": {
+      "path": "D:/suishi/sagent/sagent/strategy/__init__.py",
+      "mtimeMs": 1780630611157.076,
+      "size": 350,
+      "imports": [],
+      "lastSeq": 0
+    },
+    "D:/suishi/sagent/sagent/strategy/params.py": {
+      "path": "D:/suishi/sagent/sagent/strategy/params.py",
+      "mtimeMs": 1780630646540.007,
+      "size": 4856,
+      "imports": [],
+      "lastSeq": 0
     }
   },
   "symbols": {},
   "reverseDeps": {
-    "D:/suishi/sagent/close_issues.py": [],
     "D:/suishi/sagent/sagent/__init__.py": [],
     "D:/suishi/sagent/sagent/backtest_engine.py": [],
     "D:/suishi/sagent/sagent/backtest_portfolio.py": [],
     "D:/suishi/sagent/sagent/backtest.py": [],
     "D:/suishi/sagent/sagent/cache.py": [],
+    "D:/suishi/sagent/sagent/chart_models.py": [],
     "D:/suishi/sagent/sagent/chart.py": [],
     "D:/suishi/sagent/sagent/config.py": [],
     "D:/suishi/sagent/sagent/data.py": [],
     "D:/suishi/sagent/sagent/format.py": [],
     "D:/suishi/sagent/sagent/kline.py": [],
     "D:/suishi/sagent/sagent/llm.py": [],
+    "D:/suishi/sagent/sagent/market.py": [],
     "D:/suishi/sagent/sagent/models.py": [],
     "D:/suishi/sagent/sagent/notify.py": [],
     "D:/suishi/sagent/sagent/portfolio.py": [],
+    "D:/suishi/sagent/sagent/real_llm.py": [],
     "D:/suishi/sagent/sagent/scan.py": [],
+    "D:/suishi/sagent/sagent/sector_bars_cache.py": [],
     "D:/suishi/sagent/sagent/sector_cache.py": [],
     "D:/suishi/sagent/sagent/sector.py": [],
+    "D:/suishi/sagent/sagent/signal.py": [],
+    "D:/suishi/sagent/sagent/strategy/__init__.py": [],
+    "D:/suishi/sagent/sagent/strategy/params.py": [],
     "D:/suishi/sagent/sagent/technical.py": [],
     "D:/suishi/sagent/sagent/validation.py": [],
     "D:/suishi/sagent/scripts/analyze_llm_judge.py": [],
@@ -564,10 +654,12 @@
     "D:/suishi/sagent/scripts/analyze_stoploss.py": [],
     "D:/suishi/sagent/scripts/analyze_v2.py": [],
     "D:/suishi/sagent/scripts/apply_decision.py": [],
+    "D:/suishi/sagent/scripts/backtest_report.py": [],
+    "D:/suishi/sagent/scripts/benchmark_backtest_cache.py": [],
     "D:/suishi/sagent/scripts/benchmark_scan.py": [],
     "D:/suishi/sagent/scripts/check_nav.py": [],
-    "D:/suishi/sagent/scripts/explore_blocks.py": [],
     "D:/suishi/sagent/scripts/find_real_cases.py": [],
+    "D:/suishi/sagent/scripts/fix_console_encoding.py": [],
     "D:/suishi/sagent/scripts/format_report.py": [],
     "D:/suishi/sagent/scripts/generate_charts.py": [],
     "D:/suishi/sagent/scripts/market_scan.py": [],
@@ -577,17 +669,7 @@
     "D:/suishi/sagent/scripts/prepare_scan.py": [],
     "D:/suishi/sagent/scripts/run_backtest_period.py": [],
     "D:/suishi/sagent/scripts/run_backtest.py": [],
-    "D:/suishi/sagent/scripts/test_direct_ip.py": [],
-    "D:/suishi/sagent/scripts/test_headers.py": [],
-    "D:/suishi/sagent/scripts/test_http.py": [],
-    "D:/suishi/sagent/scripts/test_mainline_data.py": [],
-    "D:/suishi/sagent/scripts/test_mainline.py": [],
-    "D:/suishi/sagent/scripts/test_real_ip.py": [],
-    "D:/suishi/sagent/scripts/test_socket.py": [],
-    "D:/suishi/sagent/scripts/test_ths_hy.py": [],
-    "D:/suishi/sagent/scripts/test_ths_parse.py": [],
-    "D:/suishi/sagent/scripts/test_ths_sectors.py": [],
-    "D:/suishi/sagent/scripts/test_ths.py": [],
+    "D:/suishi/sagent/scripts/warmup_cache.py": [],
     "D:/suishi/sagent/tests/test_cache.py": [],
     "D:/suishi/sagent/tests/test_e2e_scripts.py": [],
     "D:/suishi/sagent/tests/test_sagent_behaviors.py": []
@@ -609,7 +691,7 @@
     "scanRoot": "D:\\suishi\\sagent",
     "projectRoot": "D:\\suishi\\sagent",
     "canWarmCaches": true,
-    "sourceFileCount": 36
+    "sourceFileCount": 48
   },
   "languageProfile": {
     "present": {
@@ -653,7 +735,7 @@
       "jsts": true
     },
     "counts": {
-      "python": 36
+      "python": 48
     },
     "detectedKinds": [
       "jsts",

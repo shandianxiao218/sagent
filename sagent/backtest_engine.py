@@ -14,6 +14,11 @@ from typing import Any
 
 from .kline import find_key_low, find_trend_break_ref
 from .models import DailyBar
+from .strategy.params import StopLossParams
+
+
+# 模块级默认参数
+_stop_params = StopLossParams()
 
 
 @dataclass(frozen=True)
@@ -114,7 +119,8 @@ def find_key_low_for_signal(bars: list[DailyBar], signal_idx: int) -> tuple[floa
 def simulate_trade(
     bars: list[DailyBar],
     signal_idx: int,
-    max_holding: int = 20,
+    max_holding: int | None = None,
+    slp: StopLossParams | None = None,
 ) -> TradeLifecycle:
     """模拟单笔交易的逐日止损/止盈生命周期。
 
@@ -124,11 +130,14 @@ def simulate_trade(
     Args:
         bars: 完整的日K线数据。
         signal_idx: 信号日（买入日）在 bars 中的索引。
-        max_holding: 最大持有天数（不含买入日）。
+        max_holding: 最大持有天数（不含买入日），None 则用参数默认值。
+        slp: 止损参数，None 则用模块默认值。
 
     Returns:
         TradeLifecycle 包含完整的退出信息和逐日事件。
     """
+    p = slp or _stop_params
+    _max_holding = max_holding if max_holding is not None else p.max_holding
     n = len(bars)
     signal_bar = bars[signal_idx]
     symbol = signal_bar.symbol
@@ -137,7 +146,13 @@ def simulate_trade(
 
     # 计算 key_low、止损价和趋势破坏参考位
     key_low, key_low_idx = find_key_low_for_signal(bars, signal_idx)
-    stop_loss_price = round(max(entry_price * 0.90, key_low * 0.97), 2)
+    stop_loss_price = round(
+        max(
+            entry_price * (1 - p.absolute_stop),
+            key_low * (1 - p.key_low_buffer),
+        ),
+        2,
+    )
     r_denom = entry_price - stop_loss_price  # 盈亏比分母（基于实际止损价）
 
     # 计算趋势破坏参考位 (#28)
@@ -157,7 +172,7 @@ def simulate_trade(
     holding_days = 0
 
     # 逐日遍历：从买入次日到 max_holding
-    end_idx = min(signal_idx + max_holding, n - 1)
+    end_idx = min(signal_idx + _max_holding, n - 1)
 
     for i in range(signal_idx + 1, end_idx + 1):
         bar = bars[i]
@@ -200,7 +215,7 @@ def simulate_trade(
             break
 
         # 2. 半仓止盈检查（只触发一次）
-        if not half_taken and current_r >= 2.5:
+        if not half_taken and current_r >= p.half_profit_r:
             half_taken = True
             half_profit_r = current_r
             daily_events[-1]["event"] = "半仓止盈"
@@ -239,8 +254,8 @@ def simulate_trade(
             daily_events[-1]["exit_price"] = exit_price
 
     # 判断止损类型
-    absolute_stop_threshold = round(entry_price * 0.90, 2)
-    keylow_stop_threshold = round(key_low * 0.97, 2)
+    absolute_stop_threshold = round(entry_price * (1 - p.absolute_stop), 2)
+    keylow_stop_threshold = round(key_low * (1 - p.key_low_buffer), 2)
     if exit_reason == "止损":
         if (
             exit_price == absolute_stop_threshold
