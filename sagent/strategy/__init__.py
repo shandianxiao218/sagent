@@ -1,5 +1,6 @@
 """策略模块：信号检测、LLM 判断、入场确认、扫描参数。"""
 
+from .judge import simulated_llm_judge
 from .params import (
     EntryParams,
     JudgeParams,
@@ -8,8 +9,24 @@ from .params import (
     SignalParams,
     StopLossParams,
 )
+from .signal import (
+    HasDailyBars,
+    check_signal_from_closes,
+    filter_stock_pool,
+    technical_candidates,
+    technical_candidates_from_bars_map,
+)
 
 __all__ = [
+    # Signal
+    "check_signal_from_closes",
+    "filter_stock_pool",
+    "technical_candidates",
+    "technical_candidates_from_bars_map",
+    "HasDailyBars",
+    # Judge
+    "simulated_llm_judge",
+    # Params
     "SignalParams",
     "JudgeParams",
     "StopLossParams",
