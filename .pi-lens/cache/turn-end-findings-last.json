@@ -1,6 +1,6 @@
 {
-  "signature": "sagent/backtest_engine.py::🕸️ Impact cascade from edited file:\nCheck next: backtest_portfolio.py, generate_charts.py, run_backtest_period.py, test_e2e_scripts.py, test_sagent_behaviors.py\n📐 Cascade errors in 2 neighbor file(s) — fix before finishing turn:\n<diagnostics file=\"scripts/generate_charts.py\" reason=\"references\">\n  line 32, col 10 rule=cascade:reportMissingImports: Import \"mootdx.quotes\" could not be resolved\n</diagnostics>\n<diagnostics file=\"scripts/run_backtest_period.py\" reason=\"references\">\n  line 45, col 6 rule=cascade:reportMissingImports: Import \"sagent.strategy.scanner\" could not be resolved\n  line 158, col 10 rule=cascade:reportMissingImports: Import \"mootdx.quotes\" could not be resolved\n</diagnostics>",
+  "signature": "sagent/strategy/params.py::Unresolved from this turn — sagent/strategy/params.py:\n🔴 STOP — 1 issue(s) must be fixed:\n  L12: `dataclasses.field` imported but unused",
   "sessionId": "lens-mq0ci7ka-f12b74e3",
-  "projectSeqStart": 629,
-  "projectSeqEnd": 630
+  "projectSeqStart": 633,
+  "projectSeqEnd": 634
 }

@@ -2,11 +2,17 @@
 
 所有策略阈值统一定义在此文件，方便调参和回测对比。
 每个参数类对应策略的一个维度。
+
+使用 dataclass 实现，支持构造时覆盖默认值：
+    sp = SignalParams(min_rise_60d=0.8)  # 覆盖单个参数
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 
+
+@dataclass
 class SignalParams:
     """信号检测参数（check_signal_from_closes / _check_candidate_conditions）。"""
 
@@ -28,6 +34,7 @@ class SignalParams:
     breakout_window: int = 8  # 突破前 N 日（不含当日）
 
 
+@dataclass
 class JudgeParams:
     """LLM 规则引擎判断参数（simulated_llm_judge）。"""
 
@@ -58,6 +65,7 @@ class JudgeParams:
     confidence_default: float = 0.50  # 默认置信度
 
 
+@dataclass
 class StopLossParams:
     """止损/止盈参数（backtest_engine / backtest_portfolio）。"""
 
@@ -76,6 +84,7 @@ class StopLossParams:
     portfolio_stop_pct: float = 0.05  # 组合止损距离（5%）
 
 
+@dataclass
 class ScanParams:
     """回测扫描参数（run_backtest_period.py）。"""
 
@@ -106,16 +115,18 @@ class ScanParams:
     strong_mdd_threshold: float = 0.12  # 强信号最大回撤阈值
 
 
+@dataclass
 class EntryParams:
-    """入场确认参数（strategy/entry.py，Step 4 使用）。
+    """入场确认参数（strategy/entry.py）。
 
-    目前为预留，解决核心痛点：-7 天退出的 61 笔交易胜率 0%。
+    解决核心痛点：-7 天退出的 61 笔交易胜率 0%。
     """
 
     require_next_day_confirm: bool = False  # 是否要求次日确认
-    confirm_buffer: float = 0.01  # 确认缓冲：收盘 > key_low + buffer
+    confirm_drop: float = 0.02  # 次日收盘不得低于信号日收盘*(1-drop)
 
 
+@dataclass
 class PortfolioParams:
     """组合管理参数（backtest_portfolio.py）。"""
 

@@ -41,7 +41,7 @@ from sagent.kline import describe_stock
 from sagent.models import DailyBar
 from sagent.real_llm import create_llm_client, llm_status
 from sagent.technical import check_signal_from_closes, simulated_llm_judge
-from sagent.strategy.params import ScanParams, SignalParams, StopLossParams
+from sagent.strategy.params import EntryParams, ScanParams, SignalParams, StopLossParams
 from sagent.strategy.scanner import (
     desc,
     forward_returns,
@@ -619,6 +619,7 @@ def run_engine_backtest(
     initial_cash: float | None = None,
     max_holding: int | None = None,
     cache_path: str | None = None,
+    entry_confirm: bool = False,
 ) -> dict:
     """使用逐日止损/止盈引擎 + 组合管理的回测。
 
@@ -633,6 +634,7 @@ def run_engine_backtest(
     _scan = ScanParams()
     _signal = SignalParams()
     _stop = StopLossParams()
+    _entry = EntryParams(require_next_day_confirm=entry_confirm)
     _sample_size = sample_size if sample_size is not None else _scan.sample_size
     _window_step = window_step if window_step is not None else _scan.window_step
     _min_avg_amount = (
@@ -792,7 +794,7 @@ def run_engine_backtest(
         if not bars or signal_idx is None:
             continue
 
-        trade = simulate_trade(bars, signal_idx, max_holding=_max_holding)
+        trade = simulate_trade(bars, signal_idx, max_holding=_max_holding, ep=_entry)
 
         # K线描述（用于 LLM 判断和报表展示）
         window_bars = bars[: signal_idx + 1]
@@ -1037,6 +1039,11 @@ def main() -> None:
         action="store_true",
         help="使用真实 LLM API 进行形态判断（需配置 SAGENT_LLM_API_KEY 环境变量）",
     )
+    parser.add_argument(
+        "--entry-confirm",
+        action="store_true",
+        help="启用入场确认：次日收盘必须 >= 信号日收盘*(1-0.02)",
+    )
     args = parser.parse_args()
 
     # 初始化真实 LLM 客户端
@@ -1060,6 +1067,7 @@ def main() -> None:
             min_avg_amount=args.min_amount,
             initial_cash=args.initial_cash,
             cache_path=args.cache,
+            entry_confirm=args.entry_confirm,
         )
         default_output = ROOT / "output" / "backtest_engine.json"
     else:
